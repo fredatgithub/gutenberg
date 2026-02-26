@@ -23,8 +23,9 @@ const {
 	populateServerData,
 	batch,
 	routerRegions,
-	cloneElement,
+	h: createElement,
 	navigationSignal,
+	warn,
 } = privateApis(
 	'I acknowledge that using private APIs means my theme or plugin will inevitably break in the next version of WordPress.'
 );
@@ -117,7 +118,7 @@ const cloneRouterRegionContent = ( vdom: any ) => {
 			: allPriorityLevels;
 
 	return priorityLevels.length > 0
-		? cloneElement( vdom, {
+		? createElement( vdom.type, {
 				...vdom.props,
 				priorityLevels,
 		  } )
@@ -136,6 +137,15 @@ const regionsToAttachByParent = new WeakMap< Element, string[] >();
  * together in the corresponding root fragment.
  */
 const rootFragmentsByParent = new WeakMap< Element, any >();
+
+/**
+ * Set of router regions using the `attachTo` property that are present in the
+ * initial page.
+ *
+ * These regions should be treated as regular regions without the `attachTo`
+ * attribute as they don't need to be appended; they are already in the HTML.
+ */
+const initialRegionsToAttach = new Set< string >();
 
 /**
  * Fetches and prepares a page from a given URL.
@@ -201,7 +211,7 @@ const preparePage: PreparePage = async ( url, dom, { vdom } = {} ) => {
 				: toVdom( region );
 		}
 
-		if ( attachTo ) {
+		if ( attachTo && ! initialRegionsToAttach.has( id ) ) {
 			regionsToAttach[ id ] = attachTo;
 		}
 	} );
@@ -211,7 +221,7 @@ const preparePage: PreparePage = async ( url, dom, { vdom } = {} ) => {
 
 	// Wait for styles and modules to be ready.
 	const [ styles, scriptModules ] = await Promise.all( [
-		Promise.all( preloadStyles( dom, url ) ),
+		Promise.all( preloadStyles( dom ) ),
 		Promise.all( preloadScriptModules( dom ) ),
 	] );
 
@@ -336,6 +346,16 @@ window.addEventListener( 'popstate', async () => {
 	}
 } );
 
+// Detect router regions with `attachTo` in the initial page. This step should
+// be done before the initial page is processed with `preparePage()` so this
+// function treats them as regular router regions.
+document.querySelectorAll( regionsSelector ).forEach( ( region ) => {
+	const { id, attachTo } = parseRegionAttribute( region );
+	if ( attachTo ) {
+		initialRegionsToAttach.add( id );
+	}
+} );
+
 // Initialize the router and cache the initial page using the initial vDOM.
 window.document
 	.querySelectorAll< HTMLScriptElement >( 'script[type=module][src]' )
@@ -375,12 +395,28 @@ interface Store {
 	};
 }
 
+const { state: privateState } = store(
+	'core/router/private',
+	{
+		state: {
+			navigation: {
+				hasStarted: false,
+				hasFinished: false,
+			},
+		},
+	},
+	{ lock: true }
+);
+
 export const { state, actions } = store< Store >( 'core/router', {
 	state: {
-		url: window.location.href,
-		navigation: {
-			hasStarted: false,
-			hasFinished: false,
+		get navigation() {
+			if ( globalThis.SCRIPT_DEBUG ) {
+				warn(
+					`The usage of state.navigation.{hasStarted|hasFinished} from core/router is deprecated and will stop working in WordPress 7.1.`
+				);
+			}
+			return privateState.navigation;
 		},
 	},
 	actions: {
@@ -409,7 +445,7 @@ export const { state, actions } = store< Store >( 'core/router', {
 			}
 
 			const pagePath = getPagePath( href );
-			const { navigation } = state;
+			const { navigation } = privateState;
 			const {
 				loadingAnimation = true,
 				screenReaderAnnouncement = true,
@@ -526,6 +562,9 @@ export const { state, actions } = store< Store >( 'core/router', {
 		},
 	},
 } );
+
+// Initialize the URL in the state if it hasn't been set yet in the server.
+state.url = state.url || window.location.href;
 
 /**
  * Announces a message to screen readers.

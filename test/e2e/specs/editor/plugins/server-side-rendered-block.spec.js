@@ -122,10 +122,10 @@ test.describe( 'PHP-only auto-register blocks', () => {
 		await admin.createNewPost();
 	} );
 
-	test( 'should register blocks with auto_register flag', async ( {
+	test( 'should register blocks with autoRegister flag', async ( {
 		editor,
 	} ) => {
-		// Block with auto_register flag should be insertable
+		// Block with autoRegister flag should be insertable
 		await editor.insertBlock( { name: 'test/auto-register-block' } );
 
 		const block = editor.canvas.getByText( 'Auto-register block content' );
@@ -138,7 +138,7 @@ test.describe( 'PHP-only auto-register blocks', () => {
 		} );
 		expect( blockType.apiVersion ).toBe( 3 );
 
-		// Block without auto_register flag should NOT exist in registry
+		// Block without autoRegister flag should NOT exist in registry
 		const blockExists = await editor.page.evaluate( () => {
 			return (
 				window.wp.blocks.getBlockType(
@@ -231,5 +231,36 @@ test.describe( 'PHP-only auto-register blocks', () => {
 			`Background: ${ colorName.toLowerCase().replace( /\s+/g, '-' ) }`
 		);
 		await expect( colorText ).toBeVisible();
+	} );
+
+	test( 'should generate inspector controls from block attributes', async ( {
+		editor,
+		page,
+	} ) => {
+		// Insert the block with auto-generated controls
+		await editor.insertBlock( {
+			name: 'test/auto-register-with-controls',
+		} );
+
+		// Open the document settings sidebar
+		await editor.openDocumentSettingsSidebar();
+
+		// Verify auto-generated controls are present
+		// String attribute → text input
+		await expect( page.getByLabel( 'Title' ) ).toBeVisible();
+
+		// Integer attribute → number input
+		await expect( page.getByLabel( 'Count' ) ).toBeVisible();
+
+		// Number attribute → number control
+		await expect( page.getByLabel( 'Spacing' ) ).toBeVisible();
+
+		// Boolean attribute → toggle/checkbox
+		await expect( page.getByLabel( 'Show Emojis' ) ).toBeVisible();
+
+		// Enum attribute → select control
+		await expect(
+			page.getByLabel( 'Emoji', { exact: true } )
+		).toBeVisible();
 	} );
 } );

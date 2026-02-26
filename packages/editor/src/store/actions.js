@@ -462,11 +462,6 @@ export const autosave =
 	async ( { select, dispatch } ) => {
 		const post = select.getCurrentPost();
 
-		// Currently template autosaving is not supported.
-		if ( post.type === 'wp_template' ) {
-			return;
-		}
-
 		if ( local ) {
 			const isPostNew = select.isEditedPostNew();
 			const title = select.getEditedPostAttribute( 'title' );
@@ -748,9 +743,7 @@ export const setRenderingMode =
 			select.__unstableIsEditorReady() &&
 			! select.getEditorSettings().isPreviewMode
 		) {
-			// We clear the block selection but we also need to clear the selection from the core store.
 			registry.dispatch( blockEditorStore ).clearSelectedBlock();
-			dispatch.editPost( { selection: undefined }, { undoIgnore: true } );
 		}
 
 		dispatch( {

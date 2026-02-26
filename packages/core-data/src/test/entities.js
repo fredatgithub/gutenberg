@@ -4,6 +4,10 @@
 import apiFetch from '@wordpress/api-fetch';
 
 jest.mock( '@wordpress/api-fetch' );
+jest.mock( '../sync', () => ( {
+	...jest.requireActual( '../sync' ),
+	getSyncManager: jest.fn(),
+} ) );
 
 /**
  * Internal dependencies
@@ -14,6 +18,8 @@ import {
 	prePersistPostType,
 	additionalEntityConfigLoaders,
 } from '../entities';
+import { getSyncManager } from '../sync';
+import { POST_META_KEY_FOR_CRDT_DOC_PERSISTENCE } from '../utils/crdt';
 
 describe( 'getMethodName', () => {
 	it( 'should return the right method name for an entity with the root kind', () => {
@@ -89,6 +95,31 @@ describe( 'prePersistPostType', () => {
 		expect( prePersistPostType( record, edits, 'post', true ) ).toEqual(
 			{}
 		);
+	} );
+
+	it( 'adds meta with serialized CRDT doc when createPersistedCRDTDoc returns a value', () => {
+		const mockSerializedDoc = 'serialized-crdt-doc-data';
+		getSyncManager.mockReturnValue( {
+			createPersistedCRDTDoc: jest
+				.fn()
+				.mockReturnValue( mockSerializedDoc ),
+		} );
+
+		const record = { id: 123, status: 'publish' };
+		const edits = {};
+		const result = prePersistPostType( record, edits, 'post', false );
+
+		expect( result.meta ).toEqual( {
+			[ POST_META_KEY_FOR_CRDT_DOC_PERSISTENCE ]: mockSerializedDoc,
+		} );
+
+		expect( getSyncManager ).toHaveBeenCalled();
+		expect( getSyncManager().createPersistedCRDTDoc ).toHaveBeenCalledWith(
+			'postType/post',
+			123
+		);
+
+		getSyncManager.mockReset();
 	} );
 } );
 

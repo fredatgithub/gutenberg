@@ -12,11 +12,13 @@ import {
 	Outlet,
 	redirect,
 	RouterProvider,
+	useBlocker,
 	useCanGoBack,
 	useLoaderData,
 	useLocation,
 	useMatches,
 	useRouter,
+	useRouterState,
 } from '@tanstack/react-router';
 
 /**
@@ -50,6 +52,8 @@ lock( privateApis, {
 	useLocation,
 	useMatches,
 	useRouter,
+	useRouterState,
+	useBlocker,
 
 	// History utilities
 	parseHref,

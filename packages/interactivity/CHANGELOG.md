@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 6.40.0 (2026-02-18)
+
+### New Features
+
+-   Export `watch()` function for subscribing to signal changes outside of directives.
+
+## 6.39.0 (2026-01-29)
+
+## 6.38.0 (2026-01-16)
+
+### Bug Fixes
+
+-   Preserve boolean HTML attributes during client-side navigation. ([#74446](https://github.com/WordPress/gutenberg/pull/74446))
+-   Fix and refactor runtime initialization logic. ([#71123](https://github.com/WordPress/gutenberg/pull/71123))
+-   Update deprecation warning for unique ID format. ([#74580](https://github.com/WordPress/gutenberg/pull/74580))
+
 ## 6.36.0 (2025-11-26)
 
 ### Bug Fixes
@@ -43,7 +59,7 @@
 
 ### Deprecations
 
--   Deprecated the `"data-wp-ignore"` directive of the Interactivity API.([#70945](https://github.com/WordPress/gutenberg/pull/70945))  
+-   Deprecated the `"data-wp-ignore"` directive of the Interactivity API.([#70945](https://github.com/WordPress/gutenberg/pull/70945))
     It is deprecated as of WordPress 6.9 and will be removed in version 7.0.
 
 ### Bug Fixes
@@ -169,7 +185,7 @@
 
 ### Enhancements
 
--   Export `splitTask` function from `@wordpress/interactivity` package to facilitate yielding to the main thread. See example in [async actions](https://github.com/WordPress/gutenberg/blob/trunk/docs/reference-guides/interactivity-api/api-reference.md#async-actions) documentation. ([#62665](https://github.com/WordPress/gutenberg/pull/62665))
+-   Export `splitTask` function from `@wordpress/interactivity` package to facilitate yielding to the main thread. See example in [async actions](https://github.com/WordPress/gutenberg/blob/trunk/docs/reference-guides/interactivity-api/directives-and-store.md#async-actions) documentation. ([#62665](https://github.com/WordPress/gutenberg/pull/62665))
 
 ## 6.1.0 (2024-06-15)
 

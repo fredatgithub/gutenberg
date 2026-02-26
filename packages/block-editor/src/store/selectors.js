@@ -5,6 +5,7 @@ import {
 	getBlockType,
 	getBlockTypes,
 	getBlockVariations,
+	getDefaultBlockName,
 	hasBlockSupport,
 	getPossibleBlockTransformations,
 	switchToBlockType,
@@ -1681,6 +1682,11 @@ const canInsertBlockTypeUnmemoized = (
 	blockName,
 	rootClientId = null
 ) => {
+	// Disable insertion in preview mode.
+	if ( state.settings.isPreviewMode ) {
+		return false;
+	}
+
 	if ( ! isBlockVisibleInTheInserter( state, blockName, rootClientId ) ) {
 		return false;
 	}
@@ -1699,7 +1705,10 @@ const canInsertBlockTypeUnmemoized = (
 	}
 
 	const blockEditingMode = getBlockEditingMode( state, rootClientId ?? '' );
-	if ( blockEditingMode === 'disabled' ) {
+	if (
+		blockEditingMode === 'disabled' &&
+		blockName !== getDefaultBlockName()
+	) {
 		return false;
 	}
 
@@ -1715,13 +1724,18 @@ const canInsertBlockTypeUnmemoized = (
 	// some cases when the block is a content block.
 	const isContentRoleBlock = isContentBlock( blockName );
 	const isParentSectionBlock = !! isSectionBlock( state, rootClientId );
-	const isBlockWithinSection = !! getParentSectionBlock(
-		state,
-		rootClientId
-	);
+	const sectionClientId = isParentSectionBlock
+		? rootClientId
+		: getParentSectionBlock( state, rootClientId );
+	const isWithinSection = !! sectionClientId;
+	if ( isWithinSection && ! isContentRoleBlock ) {
+		return false;
+	}
+
+	// Don't allow insertion into synced patterns.
 	if (
-		( isParentSectionBlock || isBlockWithinSection ) &&
-		! isContentRoleBlock
+		isWithinSection &&
+		getBlockName( state, sectionClientId ) === 'core/block'
 	) {
 		return false;
 	}
@@ -1735,7 +1749,20 @@ const canInsertBlockTypeUnmemoized = (
 			rootClientId
 		)
 	) {
-		return false;
+		// Allow inserting the default block anywhere that another default block already exists
+		// when in contentOnly mode.
+		if ( blockName === getDefaultBlockName() ) {
+			const existingBlocks = getBlockOrder( state, rootClientId );
+			const hasDefaultBlock = existingBlocks.some(
+				( clientId ) =>
+					getBlockName( state, clientId ) === getDefaultBlockName()
+			);
+			if ( ! hasDefaultBlock ) {
+				return false;
+			}
+		} else {
+			return false;
+		}
 	}
 
 	const parentName = getBlockName( state, rootClientId );
@@ -1868,6 +1895,11 @@ export function canInsertBlocks( state, clientIds, rootClientId = null ) {
  * @return {boolean} Whether the given block is allowed to be removed.
  */
 export function canRemoveBlock( state, clientId ) {
+	// Disable removal in preview mode.
+	if ( state.settings.isPreviewMode ) {
+		return false;
+	}
+
 	const attributes = getBlockAttributes( state, clientId );
 	if ( attributes === null ) {
 		return true;
@@ -1884,26 +1916,53 @@ export function canRemoveBlock( state, clientId ) {
 
 	// It shouldn't be possible to move in a section block unless in
 	// some cases when the block is a content block.
-	const isBlockWithinSection = !! getParentSectionBlock( state, clientId );
+	const isParentSectionBlock = !! isSectionBlock( state, rootClientId );
+	const sectionClientId = isParentSectionBlock
+		? rootClientId
+		: getParentSectionBlock( state, rootClientId );
+	const isWithinSection = !! sectionClientId;
 	const isContentRoleBlock = isContentBlock(
 		getBlockName( state, clientId )
 	);
-	if ( isBlockWithinSection && ! isContentRoleBlock ) {
+	if ( isWithinSection && ! isContentRoleBlock ) {
 		return false;
 	}
 
-	const isParentSectionBlock = !! isSectionBlock( state, rootClientId );
-	const rootBlockEditingMode = getBlockEditingMode( state, rootClientId );
-	// Check if the parent container allows insertion/removal in contentOnly mode
+	// Disallow removal from synced patterns.
 	if (
-		( isParentSectionBlock || rootBlockEditingMode === 'contentOnly' ) &&
+		isWithinSection &&
+		getBlockName( state, sectionClientId ) === 'core/block'
+	) {
+		return false;
+	}
+
+	const rootBlockEditingMode = getBlockEditingMode( state, rootClientId );
+	const blockName = getBlockName( state, clientId );
+	// Check if the parent container allows insertion/removal in contentOnly mode.
+	if (
+		( isParentSectionBlock ||
+			rootBlockEditingMode === 'contentOnly' ||
+			blockName === getDefaultBlockName() ) &&
 		! isContainerInsertableToInContentOnlyMode(
 			state,
 			getBlockName( state, clientId ),
 			rootClientId
 		)
 	) {
-		return false;
+		// Allow removing the default block when other default blocks exist
+		// in contentOnly mode.
+		if ( blockName === getDefaultBlockName() ) {
+			const existingBlocks = getBlockOrder( state, rootClientId );
+			const defaultBlocks = existingBlocks.filter(
+				( id ) => getBlockName( state, id ) === getDefaultBlockName()
+			);
+			// Allow removal if there are other default blocks besides this one
+			if ( defaultBlocks.length > 1 ) {
+				return true;
+			}
+		} else {
+			return false;
+		}
 	}
 
 	return rootBlockEditingMode !== 'disabled';
@@ -1930,6 +1989,11 @@ export function canRemoveBlocks( state, clientIds ) {
  * @return {boolean} Whether the given block is allowed to be moved.
  */
 export function canMoveBlock( state, clientId ) {
+	// Disable moving in preview mode.
+	if ( state.settings.isPreviewMode ) {
+		return false;
+	}
+
 	const attributes = getBlockAttributes( state, clientId );
 	if ( attributes === null ) {
 		return true;
@@ -1991,6 +2055,11 @@ export function canMoveBlocks( state, clientIds ) {
  * @return {boolean} Whether the given block is allowed to be edited.
  */
 export function canEditBlock( state, clientId ) {
+	// Disable editing in preview mode.
+	if ( state.settings.isPreviewMode ) {
+		return false;
+	}
+
 	const attributes = getBlockAttributes( state, clientId );
 	if ( attributes === null ) {
 		return true;
@@ -2011,6 +2080,11 @@ export function canEditBlock( state, clientId ) {
  * @return {boolean} Whether a given block type can be locked/unlocked.
  */
 export function canLockBlockType( state, nameOrType ) {
+	// Disable locking in preview mode.
+	if ( state.settings.isPreviewMode ) {
+		return false;
+	}
+
 	if ( ! hasBlockSupport( nameOrType, 'lock', true ) ) {
 		return false;
 	}
@@ -2154,24 +2228,22 @@ const buildBlockTypeItem =
 			'inserter'
 		);
 		const blockVariations = getBlockVariations( blockType.name, 'block' );
-		// Combine inserter and block variations. Block-scope variations without
-		// inserter scope are searchable via slash commands but hidden from browse.
-		const inserterVariationNames = new Set(
-			inserterVariations.map( ( variation ) => variation.name )
-		);
 		const allVariations = [
 			...inserterVariations,
+			// Built-in heading level variations have block scope but allow
+			// insertion via slash inserter.
+			// See https://github.com/WordPress/gutenberg/issues/74233.
 			...blockVariations
 				.filter(
 					( variation ) =>
-						! inserterVariationNames.has( variation.name )
+						blockType.name === 'core/heading' &&
+						[ 'h1', 'h2', 'h3', 'h4', 'h5', 'h6' ].includes(
+							variation.name
+						)
 				)
 				.map( ( variation ) => ( {
 					...variation,
 					isSearchOnly: true,
-					// Block-scope `isDefault` is for the placeholder picker,
-					// not for the inserter, so don't carry it over.
-					isDefault: false,
 				} ) ),
 		];
 		return {
@@ -2281,13 +2353,21 @@ export const getInserterItems = createRegistrySelector( ( select ) =>
 						)
 				);
 			} else {
+				const { getClosestAllowedInsertionPoint } = unlock(
+					select( STORE_NAME )
+				);
 				blockTypeInserterItems = blockTypeInserterItems
-					.filter( ( blockType ) =>
-						isBlockVisibleInTheInserter(
-							state,
-							blockType,
-							rootClientId
-						)
+					.filter(
+						( blockType ) =>
+							isBlockVisibleInTheInserter(
+								state,
+								blockType,
+								rootClientId
+							) &&
+							getClosestAllowedInsertionPoint(
+								blockType.name,
+								rootClientId
+							) !== null
 					)
 					.map( ( blockType ) => ( {
 						...blockType,
@@ -2299,8 +2379,6 @@ export const getInserterItems = createRegistrySelector( ( select ) =>
 					} ) );
 			}
 
-			// Hardcode: Collect stretch variations separately to add at the end
-			const stretchVariations = [];
 			const items = blockTypeInserterItems.reduce(
 				( accumulator, item ) => {
 					const { variations = [] } = item;
@@ -2313,26 +2391,14 @@ export const getInserterItems = createRegistrySelector( ( select ) =>
 							state,
 							item
 						);
-						variations
-							.map( variationMapper )
-							.forEach( ( variation ) => {
-								if (
-									variation.id ===
-										'core/paragraph/stretchy-paragraph' ||
-									variation.id ===
-										'core/heading/stretchy-heading'
-								) {
-									stretchVariations.push( variation );
-								} else {
-									accumulator.push( variation );
-								}
-							} );
+						accumulator.push(
+							...variations.map( variationMapper )
+						);
 					}
 					return accumulator;
 				},
 				[]
 			);
-			items.push( ...stretchVariations );
 
 			// Ensure core blocks are prioritized in the returned results,
 			// because third party blocks can be registered earlier than

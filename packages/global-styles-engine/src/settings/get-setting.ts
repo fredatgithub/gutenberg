@@ -35,8 +35,10 @@ const VALID_SETTINGS = [
 	'color.text',
 	'custom',
 	'dimensions.aspectRatio',
+	'dimensions.height',
 	'dimensions.minHeight',
 	'dimensions.width',
+	'dimensions.dimensionSizes',
 	'layout.contentSize',
 	'layout.definitions',
 	'layout.wideSize',
@@ -65,6 +67,7 @@ const VALID_SETTINGS = [
 	'typography.textAlign',
 	'typography.textColumns',
 	'typography.textDecoration',
+	'typography.textIndent',
 	'typography.textTransform',
 	'typography.writingMode',
 ];

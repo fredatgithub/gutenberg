@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 4.40.0 (2026-02-18)
+
+## 4.39.0 (2026-01-29)
+
+## 4.38.0 (2026-01-16)
+
+### New features
+
+-   Add new `ariaKeyShortcut` function ([#74205](https://github.com/WordPress/gutenberg/pull/74205)).
+
 ## 4.36.0 (2025-11-26)
 
 ## 4.35.0 (2025-11-12)

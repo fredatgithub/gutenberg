@@ -1,13 +1,7 @@
 /**
- * External dependencies
- */
-import clsx from 'clsx';
-
-/**
  * WordPress dependencies
  */
 import {
-	AlignmentControl,
 	BlockControls,
 	InspectorControls,
 	useBlockProps,
@@ -34,7 +28,7 @@ import { createInterpolateElement } from '@wordpress/element';
 import { useToolsPanelDropdownMenuProps } from '../utils/hooks';
 
 export default function PostTitleEdit( {
-	attributes: { level, levelOptions, textAlign, isLink, rel, linkTarget },
+	attributes: { level, levelOptions, isLink, rel, linkTarget },
 	setAttributes,
 	context: { postType, postId, queryId },
 	insertBlocksAfter,
@@ -72,11 +66,7 @@ export default function PostTitleEdit( {
 	const onSplitAtEnd = () => {
 		insertBlocksAfter( createBlock( getDefaultBlockName() ) );
 	};
-	const blockProps = useBlockProps( {
-		className: clsx( {
-			[ `has-text-align-${ textAlign }` ]: textAlign,
-		} ),
-	} );
+	const blockProps = useBlockProps();
 	const blockEditingMode = useBlockEditingMode();
 	const dropdownMenuProps = useToolsPanelDropdownMenuProps();
 
@@ -147,12 +137,6 @@ export default function PostTitleEdit( {
 								setAttributes( { level: newLevel } )
 							}
 						/>
-						<AlignmentControl
-							value={ textAlign }
-							onChange={ ( nextAlign ) => {
-								setAttributes( { textAlign: nextAlign } );
-							} }
-						/>
 					</BlockControls>
 					<InspectorControls>
 						<ToolsPanel
@@ -175,7 +159,6 @@ export default function PostTitleEdit( {
 								}
 							>
 								<ToggleControl
-									__nextHasNoMarginBottom
 									label={ __( 'Make title a link' ) }
 									onChange={ () =>
 										setAttributes( { isLink: ! isLink } )
@@ -198,7 +181,6 @@ export default function PostTitleEdit( {
 										}
 									>
 										<ToggleControl
-											__nextHasNoMarginBottom
 											label={ __( 'Open in new tab' ) }
 											onChange={ ( value ) =>
 												setAttributes( {

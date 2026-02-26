@@ -45,17 +45,20 @@ const BLOCK_EDITOR_SETTINGS = [
 	'__experimentalDiscussionSettings',
 	'__experimentalFeatures',
 	'__experimentalGlobalStylesBaseStyles',
+	'allImageSizes',
 	'alignWide',
 	'blockInspectorTabs',
 	'maxUploadFileSize',
 	'allowedMimeTypes',
 	'bodyPlaceholder',
+	'canEditCSS',
 	'canLockBlocks',
 	'canUpdateBlockBindings',
 	'capabilities',
 	'clearBlockSelection',
 	'codeEditingEnabled',
 	'colors',
+	'disableContentOnlyForUnsyncedPatterns',
 	'disableCustomColors',
 	'disableCustomFontSizes',
 	'disableCustomSpacingSizes',
@@ -98,6 +101,8 @@ const {
 	mediaEditKey,
 	getMediaSelectKey,
 	isIsolatedEditorKey,
+	deviceTypeKey,
+	isNavigationOverlayContextKey,
 } = unlock( privateApis );
 
 /**
@@ -113,6 +118,8 @@ const {
 function useBlockEditorSettings( settings, postType, postId, renderingMode ) {
 	const isLargeViewport = useViewportMatch( 'medium' );
 	const {
+		allImageSizes,
+		bigImageSizeThreshold,
 		allowRightClickOverrides,
 		blockTypes,
 		focusMode,
@@ -128,6 +135,8 @@ function useBlockEditorSettings( settings, postType, postId, renderingMode ) {
 		userPatternCategories,
 		restBlockPatternCategories,
 		sectionRootClientId,
+		deviceType,
+		isNavigationOverlayContext,
 	} = useSelect(
 		( select ) => {
 			const {
@@ -139,6 +148,7 @@ function useBlockEditorSettings( settings, postType, postId, renderingMode ) {
 			} = select( coreStore );
 			const { get } = select( preferencesStore );
 			const { getBlockTypes } = select( blocksStore );
+			const { getDeviceType } = unlock( select( editorStore ) );
 			const { getBlocksByName, getBlockAttributes } =
 				select( blockEditorStore );
 			const siteSettings = canUser( 'read', {
@@ -147,6 +157,9 @@ function useBlockEditorSettings( settings, postType, postId, renderingMode ) {
 			} )
 				? getEntityRecord( 'root', 'site' )
 				: undefined;
+
+			// Fetch image sizes from REST API index for client-side media processing.
+			const baseData = getEntityRecord( 'root', '__unstableBase' );
 
 			function getSectionRootBlock() {
 				if ( renderingMode === 'template-locked' ) {
@@ -162,6 +175,8 @@ function useBlockEditorSettings( settings, postType, postId, renderingMode ) {
 			}
 
 			return {
+				allImageSizes: baseData?.image_sizes,
+				bigImageSizeThreshold: baseData?.image_size_threshold,
 				allowRightClickOverrides: get(
 					'core',
 					'allowRightClickOverrides'
@@ -192,6 +207,15 @@ function useBlockEditorSettings( settings, postType, postId, renderingMode ) {
 				userPatternCategories: getUserPatternCategories(),
 				restBlockPatternCategories: getBlockPatternCategories(),
 				sectionRootClientId: getSectionRootBlock(),
+				deviceType: getDeviceType(),
+				isNavigationOverlayContext:
+					postType === 'wp_template_part' && postId
+						? getEntityRecord(
+								'postType',
+								'wp_template_part',
+								postId
+						  )?.area === 'navigation-overlay'
+						: false,
 			};
 		},
 		[ postType, postId, isLargeViewport, renderingMode ]
@@ -283,18 +307,24 @@ function useBlockEditorSettings( settings, postType, postId, renderingMode ) {
 	return useMemo( () => {
 		const blockEditorSettings = {
 			...Object.fromEntries(
-				Object.entries( settings ).filter( ( [ key ] ) =>
-					BLOCK_EDITOR_SETTINGS.includes( key )
-				)
+				Object.entries( settings )
+					.filter( ( [ key ] ) =>
+						BLOCK_EDITOR_SETTINGS.includes( key )
+					)
+					// Exclude onNavigateToEntityRecord since we're wrapping it
+					.filter( ( [ key ] ) => key !== 'onNavigateToEntityRecord' )
 			),
 			[ globalStylesDataKey ]: globalStylesData,
 			[ globalStylesLinksDataKey ]: globalStylesLinksData,
+			allImageSizes,
+			bigImageSizeThreshold,
 			allowedBlockTypes,
 			allowRightClickOverrides,
 			focusMode: focusMode && ! forceDisableFocusMode,
 			hasFixedToolbar,
 			isDistractionFree,
 			keepCaretInsideBlock,
+			onNavigateToEntityRecord: settings.onNavigateToEntityRecord,
 			[ getMediaSelectKey ]: ( select, attachmentId ) => {
 				return select( coreStore ).getEntityRecord(
 					'postType',
@@ -356,6 +386,8 @@ function useBlockEditorSettings( settings, postType, postId, renderingMode ) {
 				'wp_block',
 				'wp_navigation',
 			].includes( postType ),
+			...( deviceType ? { [ deviceTypeKey ]: deviceType } : {} ),
+			[ isNavigationOverlayContextKey ]: isNavigationOverlayContext,
 		};
 
 		return blockEditorSettings;
@@ -385,6 +417,11 @@ function useBlockEditorSettings( settings, postType, postId, renderingMode ) {
 		globalStylesLinksData,
 		renderingMode,
 		editMediaEntity,
+		settings.onNavigateToEntityRecord,
+		deviceType,
+		allImageSizes,
+		bigImageSizeThreshold,
+		isNavigationOverlayContext,
 	] );
 }
 

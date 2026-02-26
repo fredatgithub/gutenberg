@@ -321,6 +321,7 @@ class WP_Theme_JSON_Gutenberg_Test extends WP_UnitTestCase {
 			),
 			'dimensions' => array(
 				'aspectRatio' => true,
+				'height'      => true,
 				'minHeight'   => true,
 				'width'       => true,
 			),
@@ -334,7 +335,8 @@ class WP_Theme_JSON_Gutenberg_Test extends WP_UnitTestCase {
 				'padding'  => true,
 			),
 			'typography' => array(
-				'lineHeight' => true,
+				'lineHeight'  => true,
+				'textColumns' => true,
 			),
 			'blocks'     => array(
 				'core/paragraph' => array(
@@ -361,6 +363,7 @@ class WP_Theme_JSON_Gutenberg_Test extends WP_UnitTestCase {
 					),
 					'dimensions' => array(
 						'aspectRatio' => true,
+						'height'      => true,
 						'minHeight'   => true,
 						'width'       => true,
 					),
@@ -374,7 +377,8 @@ class WP_Theme_JSON_Gutenberg_Test extends WP_UnitTestCase {
 						'padding'  => true,
 					),
 					'typography' => array(
-						'lineHeight' => false,
+						'lineHeight'  => false,
+						'textColumns' => true,
 					),
 				),
 			),
@@ -1206,14 +1210,20 @@ class WP_Theme_JSON_Gutenberg_Test extends WP_UnitTestCase {
 						'blockGap' => null,
 					),
 				),
+				'styles'   => array(
+					'spacing' => array(
+						'blockGap' => '1em',
+					),
+				),
 			),
 			'default'
 		);
-		$stylesheet = $theme_json->get_stylesheet( array( 'base-layout-styles' ) );
+		// Set base_layout_styles to true to generate only base layout styles without alignment rules.
+		$stylesheet = $theme_json->get_stylesheet( array( 'styles' ), null, array( 'base_layout_styles' => true ) );
 
-		// Note the `base-layout-styles` includes a fallback gap for the Columns block for backwards compatibility.
+		// Verify that layout styles are still generated, but without .wp-site-blocks alignment rules and flow/constrained base styles.
 		$this->assertSameCSS(
-			':where(.is-layout-flex){gap: 0.5em;}:where(.is-layout-grid){gap: 0.5em;}body .is-layout-flex{display: flex;}.is-layout-flex{flex-wrap: wrap;align-items: center;}.is-layout-flex > :is(*, div){margin: 0;}body .is-layout-grid{display: grid;}.is-layout-grid > :is(*, div){margin: 0;}:where(.wp-block-columns.is-layout-flex){gap: 2em;}:where(.wp-block-columns.is-layout-grid){gap: 2em;}:where(.wp-block-post-template.is-layout-flex){gap: 1.25em;}:where(.wp-block-post-template.is-layout-grid){gap: 1.25em;}',
+			':where(body) { margin: 0; }:where(.is-layout-flex){gap: 0.5em;}:where(.is-layout-grid){gap: 0.5em;}body .is-layout-flex{display: flex;}.is-layout-flex{flex-wrap: wrap;align-items: center;}.is-layout-flex > :is(*, div){margin: 0;}body .is-layout-grid{display: grid;}.is-layout-grid > :is(*, div){margin: 0;}',
 			$stylesheet
 		);
 	}
@@ -1231,10 +1241,10 @@ class WP_Theme_JSON_Gutenberg_Test extends WP_UnitTestCase {
 			),
 			'default'
 		);
-		$stylesheet = $theme_json->get_stylesheet( array( 'base-layout-styles' ) );
+		$stylesheet = $theme_json->get_stylesheet( array( 'styles' ), array( 'default' ) );
 		remove_theme_support( 'disable-layout-styles' );
 
-		// All Layout styles should be skipped.
+		// All Layout styles should be skipped when disable-layout-styles theme support is added.
 		$this->assertSameCSS(
 			'',
 			$stylesheet
@@ -3783,7 +3793,7 @@ class WP_Theme_JSON_Gutenberg_Test extends WP_UnitTestCase {
 		);
 
 		$expected = ':root { --wp--style--global--content-size: 800px;--wp--style--global--wide-size: 1000px; }:where(body) { margin: 0; }.wp-site-blocks > .alignleft { float: left; margin-right: 2em; }.wp-site-blocks > .alignright { float: right; margin-left: 2em; }.wp-site-blocks > .aligncenter { justify-content: center; margin-left: auto; margin-right: auto; }:where(.is-layout-flex){gap: 0.5em;}:where(.is-layout-grid){gap: 0.5em;}.is-layout-flow > .alignleft{float: left;margin-inline-start: 0;margin-inline-end: 2em;}.is-layout-flow > .alignright{float: right;margin-inline-start: 2em;margin-inline-end: 0;}.is-layout-flow > .aligncenter{margin-left: auto !important;margin-right: auto !important;}.is-layout-constrained > .alignleft{float: left;margin-inline-start: 0;margin-inline-end: 2em;}.is-layout-constrained > .alignright{float: right;margin-inline-start: 2em;margin-inline-end: 0;}.is-layout-constrained > .aligncenter{margin-left: auto !important;margin-right: auto !important;}.is-layout-constrained > :where(:not(.alignleft):not(.alignright):not(.alignfull)){max-width: var(--wp--style--global--content-size);margin-left: auto !important;margin-right: auto !important;}.is-layout-constrained > .alignwide{max-width: var(--wp--style--global--wide-size);}body .is-layout-flex{display: flex;}.is-layout-flex{flex-wrap: wrap;align-items: center;}.is-layout-flex > :is(*, div){margin: 0;}body .is-layout-grid{display: grid;}.is-layout-grid > :is(*, div){margin: 0;}';
-		$this->assertSameCSS( $expected, $theme_json->get_root_layout_rules( WP_Theme_JSON::ROOT_BLOCK_SELECTOR, $metadata ) );
+		$this->assertSameCSS( $expected, $theme_json->get_root_layout_rules( WP_Theme_JSON_Gutenberg::ROOT_BLOCK_SELECTOR, $metadata ) );
 	}
 
 	public function test_get_styles_with_appearance_tools() {
@@ -4374,6 +4384,63 @@ class WP_Theme_JSON_Gutenberg_Test extends WP_UnitTestCase {
 		unregister_block_style( 'test/milk', 'chocolate' );
 		unregister_block_type( 'test/milk' );
 
+		$this->assertSame( $expected, $actual_styles );
+	}
+
+	public function test_get_styles_for_block_with_style_variations_and_block_gap() {
+		register_block_style(
+			'core/group',
+			array(
+				'name'  => 'withGap',
+				'label' => 'With Gap',
+			)
+		);
+
+		$theme_json = new WP_Theme_JSON_Gutenberg(
+			array(
+				'version'  => WP_Theme_JSON_Gutenberg::LATEST_SCHEMA,
+				'settings' => array(
+					'spacing' => array(
+						'blockGap' => true,
+					),
+				),
+				'styles'   => array(
+					'blocks' => array(
+						'core/group' => array(
+							'variations' => array(
+								'withGap' => array(
+									'color'   => array(
+										'background' => 'tomato',
+									),
+									'spacing' => array(
+										'blockGap' => '5rem',
+									),
+								),
+							),
+						),
+					),
+				),
+			)
+		);
+
+		$metadata = array(
+			'name'       => 'core/group',
+			'path'       => array( 'styles', 'blocks', 'core/group' ),
+			'selector'   => '.wp-block-group',
+			'css'        => '.wp-block-group',
+			'variations' => array(
+				array(
+					'path'     => array( 'styles', 'blocks', 'core/group', 'variations', 'withGap' ),
+					'selector' => '.is-style-withGap.wp-block-group',
+				),
+			),
+		);
+
+		$actual_styles = $theme_json->get_styles_for_block( $metadata );
+
+		unregister_block_style( 'core/group', 'withGap' );
+
+		$expected = ':root :where(.is-style-withGap.wp-block-group){background-color: tomato;}:root :where(.is-style-withGap.wp-block-group.wp-block-group-is-layout-flow) > :first-child{margin-block-start: 0;}:root :where(.is-style-withGap.wp-block-group.wp-block-group-is-layout-flow) > :last-child{margin-block-end: 0;}:root :where(.is-style-withGap.wp-block-group.wp-block-group-is-layout-flow) > *{margin-block-start: 5rem;margin-block-end: 0;}:root :where(.is-style-withGap.wp-block-group.wp-block-group-is-layout-constrained) > :first-child{margin-block-start: 0;}:root :where(.is-style-withGap.wp-block-group.wp-block-group-is-layout-constrained) > :last-child{margin-block-end: 0;}:root :where(.is-style-withGap.wp-block-group.wp-block-group-is-layout-constrained) > *{margin-block-start: 5rem;margin-block-end: 0;}:root :where(.is-style-withGap.wp-block-group.wp-block-group-is-layout-flex){gap: 5rem;}:root :where(.is-style-withGap.wp-block-group.wp-block-group-is-layout-grid){gap: 5rem;}';
 		$this->assertSame( $expected, $actual_styles );
 	}
 
@@ -5366,6 +5433,109 @@ class WP_Theme_JSON_Gutenberg_Test extends WP_UnitTestCase {
 
 		$custom_css = ':root :where(p){color:red;}';
 		$this->assertSame( $custom_css, $theme_json->get_styles_for_block( $paragraph_node ) );
+	}
+
+	/**
+	 * Tests that block custom CSS uses the css feature selector when defined
+	 * in block metadata selectors config.
+	 */
+	public function test_get_styles_for_block_custom_css_uses_css_feature_selector() {
+		$theme_json = new WP_Theme_JSON_Gutenberg(
+			array(
+				'version' => WP_Theme_JSON_Gutenberg::LATEST_SCHEMA,
+				'styles'  => array(
+					'blocks' => array(
+						'core/paragraph' => array(
+							'css' => 'color:red;',
+						),
+					),
+				),
+			)
+		);
+
+		$paragraph_node = array(
+			'name'      => 'core/paragraph',
+			'path'      => array( 'styles', 'blocks', 'core/paragraph' ),
+			'selector'  => 'p',
+			'selectors' => array(
+				'root' => 'p',
+				'css'  => '.custom-p',
+			),
+		);
+
+		$this->assertSame(
+			':root :where(.custom-p){color:red;}',
+			$theme_json->get_styles_for_block( $paragraph_node )
+		);
+	}
+
+	/**
+	 * Tests that block custom CSS falls back to the root selector when no
+	 * css feature selector is defined in block metadata selectors config.
+	 */
+	public function test_get_styles_for_block_custom_css_falls_back_to_root_selector() {
+		$theme_json = new WP_Theme_JSON_Gutenberg(
+			array(
+				'version' => WP_Theme_JSON_Gutenberg::LATEST_SCHEMA,
+				'styles'  => array(
+					'blocks' => array(
+						'core/paragraph' => array(
+							'css' => 'color:red;',
+						),
+					),
+				),
+			)
+		);
+
+		$paragraph_node = array(
+			'name'      => 'core/paragraph',
+			'path'      => array( 'styles', 'blocks', 'core/paragraph' ),
+			'selector'  => 'p',
+			'selectors' => array(
+				'root' => 'p',
+			),
+		);
+
+		$this->assertSame(
+			':root :where(p){color:red;}',
+			$theme_json->get_styles_for_block( $paragraph_node )
+		);
+	}
+
+	/**
+	 * Tests that block custom CSS uses the css feature selector when defined
+	 * as an object with a root subkey in block metadata selectors config.
+	 */
+	public function test_get_styles_for_block_custom_css_uses_css_feature_selector_object_form() {
+		$theme_json = new WP_Theme_JSON_Gutenberg(
+			array(
+				'version' => WP_Theme_JSON_Gutenberg::LATEST_SCHEMA,
+				'styles'  => array(
+					'blocks' => array(
+						'core/paragraph' => array(
+							'css' => 'color:red;',
+						),
+					),
+				),
+			)
+		);
+
+		$paragraph_node = array(
+			'name'      => 'core/paragraph',
+			'path'      => array( 'styles', 'blocks', 'core/paragraph' ),
+			'selector'  => 'p',
+			'selectors' => array(
+				'root' => 'p',
+				'css'  => array(
+					'root' => '.custom-p',
+				),
+			),
+		);
+
+		$this->assertSame(
+			':root :where(.custom-p){color:red;}',
+			$theme_json->get_styles_for_block( $paragraph_node )
+		);
 	}
 
 	/**

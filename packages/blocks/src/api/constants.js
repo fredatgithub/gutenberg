@@ -222,6 +222,11 @@ export const __EXPERIMENTAL_STYLE_PROPERTY = {
 		support: [ 'dimensions', 'minHeight' ],
 		useEngine: true,
 	},
+	height: {
+		value: [ 'dimensions', 'height' ],
+		support: [ 'dimensions', 'height' ],
+		useEngine: true,
+	},
 	width: {
 		value: [ 'dimensions', 'width' ],
 		support: [ 'dimensions', 'width' ],
@@ -256,6 +261,11 @@ export const __EXPERIMENTAL_STYLE_PROPERTY = {
 	letterSpacing: {
 		value: [ 'typography', 'letterSpacing' ],
 		support: [ 'typography', '__experimentalLetterSpacing' ],
+		useEngine: true,
+	},
+	textIndent: {
+		value: [ 'typography', 'textIndent' ],
+		support: [ 'typography', 'textIndent' ],
 		useEngine: true,
 	},
 	writingMode: {

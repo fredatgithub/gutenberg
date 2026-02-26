@@ -5,8 +5,19 @@ const { test, expect } = require( '@wordpress/e2e-test-utils-playwright' );
 
 test.describe( 'Unsynced pattern', () => {
 	test.beforeAll( async ( { requestUtils } ) => {
+		// Cross-origin isolation (COEP) prevents page navigations
+		// from working properly during pattern editing.
+		await requestUtils.activatePlugin(
+			'gutenberg-test-plugin-disable-client-side-media-processing'
+		);
 		await requestUtils.deleteAllBlocks();
 		await requestUtils.deleteAllPatternCategories();
+	} );
+
+	test.afterAll( async ( { requestUtils } ) => {
+		await requestUtils.deactivatePlugin(
+			'gutenberg-test-plugin-disable-client-side-media-processing'
+		);
 	} );
 
 	test.beforeEach( async ( { admin } ) => {
@@ -112,16 +123,471 @@ test.describe( 'Unsynced pattern', () => {
 				expectedInserterUnsyncedPattern,
 			] );
 	} );
+
+	test( 'inserts unsynced patterns in content only mode', async ( {
+		editor,
+		page,
+		pageUtils,
+	} ) => {
+		await editor.setContent( `<!-- wp:group {"metadata":{"patternName":"core/block/123","name":"My pattern"},"layout":{"type":"constrained"}} -->
+<div class="wp-block-group"><!-- wp:group {"layout":{"type":"constrained"}} -->
+<div class="wp-block-group"><!-- wp:heading -->
+<h2 class="wp-block-heading">Test heading</h2>
+<!-- /wp:heading -->
+
+<!-- wp:separator -->
+<hr class="wp-block-separator has-alpha-channel-opacity"/>
+<!-- /wp:separator -->
+
+<!-- wp:paragraph -->
+<p>Test paragraph</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:image -->
+<figure class="wp-block-image"><img alt=""/></figure>
+<!-- /wp:image --></div>
+<!-- /wp:group --></div>
+<!-- /wp:group -->` );
+
+		// Open List View.
+		await pageUtils.pressKeys( 'access+o' );
+		const listView = page.getByRole( 'treegrid', {
+			name: 'Block navigation structure',
+		} );
+
+		// Expand the pattern to see its inner blocks in content-only mode.
+		await listView
+			.getByRole( 'gridcell', { name: 'My pattern' } )
+			.getByTestId( 'list-view-expander' )
+			.click( { force: true } );
+
+		// Assert that structural blocks (separator and group) are not present in List View.
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Separator',
+				exact: true,
+			} )
+		).not.toBeAttached();
+
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Group',
+				exact: true,
+			} )
+		).not.toBeAttached();
+
+		// Assert that content blocks are present in List View.
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Test heading',
+				exact: true,
+			} )
+		).toBeVisible();
+
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Paragraph',
+				exact: true,
+			} )
+		).toBeVisible();
+
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Image',
+				exact: true,
+			} )
+		).toBeVisible();
+
+		// Test that content blocks can be edited.
+		await editor.canvas
+			.getByRole( 'document', { name: 'Block: Paragraph' } )
+			.click();
+		await page.keyboard.type( ' additional text' );
+
+		// Verify the text was added.
+		await expect.poll( editor.getBlocks ).toMatchObject( [
+			{
+				name: 'core/group',
+				innerBlocks: [
+					{
+						name: 'core/group',
+						innerBlocks: [
+							{
+								name: 'core/heading',
+								attributes: { content: 'Test heading' },
+							},
+							{ name: 'core/separator' },
+							{
+								name: 'core/paragraph',
+								attributes: {
+									content: 'Test paragraph additional text',
+								},
+							},
+							{ name: 'core/image' },
+						],
+					},
+				],
+			},
+		] );
+	} );
+
+	test( 'supports double-clicking the pattern to edit it', async ( {
+		editor,
+		page,
+		pageUtils,
+	} ) => {
+		// Insert the same pattern structure with an outside paragraph.
+		await editor.setContent( `<!-- wp:group {"metadata":{"patternName":"core/block/123","name":"My pattern"},"layout":{"type":"constrained"}} -->
+<div class="wp-block-group"><!-- wp:group {"layout":{"type":"constrained"}} -->
+<div class="wp-block-group"><!-- wp:heading -->
+<h2 class="wp-block-heading">Test heading</h2>
+<!-- /wp:heading -->
+
+<!-- wp:separator -->
+<hr class="wp-block-separator has-alpha-channel-opacity"/>
+<!-- /wp:separator -->
+
+<!-- wp:paragraph -->
+<p>Test paragraph</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:image -->
+<figure class="wp-block-image"><img alt=""/></figure>
+<!-- /wp:image --></div>
+<!-- /wp:group --></div>
+<!-- /wp:group -->
+
+<!-- wp:paragraph -->
+<p>Outside paragraph</p>
+<!-- /wp:paragraph -->` );
+
+		// Open List View and verify initial content-only state.
+		await pageUtils.pressKeys( 'access+o' );
+		const listView = page.getByRole( 'treegrid', {
+			name: 'Block navigation structure',
+		} );
+
+		// Expand the pattern to see its inner blocks in content-only mode.
+		await listView
+			.getByRole( 'gridcell', { name: 'My pattern' } )
+			.getByTestId( 'list-view-expander' )
+			.click( { force: true } );
+
+		// Verify separator is initially hidden in content-only mode.
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Separator',
+				exact: true,
+			} )
+		).not.toBeAttached();
+
+		// Double-click the separator to enter edit mode.
+		const separator = editor.canvas.getByRole( 'document', {
+			name: 'Block: Separator',
+		} );
+		await separator.dblclick( { force: true } );
+
+		// Expand the inner Group to see all blocks including separator.
+		await listView
+			.getByRole( 'gridcell', { name: 'Group' } )
+			.getByTestId( 'list-view-expander' )
+			.click( { force: true } );
+
+		// Assert all blocks are now visible in List View.
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Separator',
+				exact: true,
+			} )
+		).toBeVisible();
+
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Group',
+				exact: true,
+			} )
+		).toBeVisible();
+
+		// Exit pattern editing by clicking outside the pattern.
+		await editor.canvas
+			.getByRole( 'document', { name: 'Block: Paragraph' } )
+			.filter( { hasText: 'Outside paragraph' } )
+			.click( { force: true } );
+
+		// Verify pattern is back to content-only mode (separator hidden again).
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Separator',
+				exact: true,
+			} )
+		).not.toBeAttached();
+
+		// Verify content blocks inside pattern are still visible.
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Test heading',
+				exact: true,
+			} )
+		).toBeVisible();
+
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Image',
+				exact: true,
+			} )
+		).toBeVisible();
+
+		// Verify both paragraphs are visible (one inside pattern, one outside).
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Paragraph',
+				exact: true,
+			} )
+		).toHaveCount( 2 );
+	} );
+
+	test( 'supports editing pattern via Edit pattern button', async ( {
+		editor,
+		page,
+		pageUtils,
+	} ) => {
+		// Insert the pattern structure.
+		await editor.setContent( `<!-- wp:group {"metadata":{"patternName":"core/block/123","name":"My pattern"},"layout":{"type":"constrained"}} -->
+<div class="wp-block-group"><!-- wp:group {"layout":{"type":"constrained"}} -->
+<div class="wp-block-group"><!-- wp:heading -->
+<h2 class="wp-block-heading">Test heading</h2>
+<!-- /wp:heading -->
+
+<!-- wp:separator -->
+<hr class="wp-block-separator has-alpha-channel-opacity"/>
+<!-- /wp:separator -->
+
+<!-- wp:paragraph -->
+<p>Test paragraph</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:image -->
+<figure class="wp-block-image"><img alt=""/></figure>
+<!-- /wp:image --></div>
+<!-- /wp:group --></div>
+<!-- /wp:group -->` );
+
+		// Open List View.
+		await pageUtils.pressKeys( 'access+o' );
+		const listView = page.getByRole( 'treegrid', {
+			name: 'Block navigation structure',
+		} );
+
+		// Expand the pattern to see its inner blocks in content-only mode.
+		await listView
+			.getByRole( 'gridcell', { name: 'My pattern' } )
+			.getByTestId( 'list-view-expander' )
+			.click( { force: true } );
+
+		// Verify separator is initially hidden in content-only mode.
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Separator',
+				exact: true,
+			} )
+		).not.toBeAttached();
+
+		// Click on the pattern in List View to select it.
+		await listView.getByRole( 'gridcell', { name: 'My pattern' } ).click();
+
+		// Open settings sidebar and click "Edit pattern" button.
+		await editor.openDocumentSettingsSidebar();
+
+		await page
+			.getByRole( 'region', { name: 'Editor settings' } )
+			.getByRole( 'button', { name: 'Edit pattern' } )
+			.click();
+
+		// Expand the inner Group to see all blocks including separator.
+		await listView
+			.getByRole( 'gridcell', { name: 'Group' } )
+			.getByTestId( 'list-view-expander' )
+			.click( { force: true } );
+
+		// Assert all blocks are now visible in List View.
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Separator',
+				exact: true,
+			} )
+		).toBeVisible();
+
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Group',
+				exact: true,
+			} )
+		).toBeVisible();
+
+		// Exit pattern editing by clicking the "Exit pattern" button.
+		await page
+			.getByRole( 'region', { name: 'Editor settings' } )
+			.getByRole( 'button', { name: 'Exit pattern' } )
+			.click();
+
+		// Verify pattern is back to content-only mode (separator hidden again).
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Separator',
+				exact: true,
+			} )
+		).not.toBeAttached();
+
+		// Verify content blocks are still visible.
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Test heading',
+				exact: true,
+			} )
+		).toBeVisible();
+
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Paragraph',
+				exact: true,
+			} )
+		).toBeVisible();
+
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Image',
+				exact: true,
+			} )
+		).toBeVisible();
+	} );
+
+	test( 'supports editing pattern via Edit pattern toolbar button', async ( {
+		editor,
+		page,
+		pageUtils,
+	} ) => {
+		// Insert the pattern structure.
+		await editor.setContent( `<!-- wp:group {"metadata":{"patternName":"core/block/123","name":"My pattern"},"layout":{"type":"constrained"}} -->
+<div class="wp-block-group"><!-- wp:group {"layout":{"type":"constrained"}} -->
+<div class="wp-block-group"><!-- wp:heading -->
+<h2 class="wp-block-heading">Test heading</h2>
+<!-- /wp:heading -->
+
+<!-- wp:separator -->
+<hr class="wp-block-separator has-alpha-channel-opacity"/>
+<!-- /wp:separator -->
+
+<!-- wp:paragraph -->
+<p>Test paragraph</p>
+<!-- /wp:paragraph -->
+
+<!-- wp:image -->
+<figure class="wp-block-image"><img alt=""/></figure>
+<!-- /wp:image --></div>
+<!-- /wp:group --></div>
+<!-- /wp:group -->` );
+
+		// Open List View.
+		await pageUtils.pressKeys( 'access+o' );
+		const listView = page.getByRole( 'treegrid', {
+			name: 'Block navigation structure',
+		} );
+
+		// Expand the pattern to see its inner blocks in content-only mode.
+		await listView
+			.getByRole( 'gridcell', { name: 'My pattern' } )
+			.getByTestId( 'list-view-expander' )
+			.click( { force: true } );
+
+		// Verify separator is initially hidden in content-only mode.
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Separator',
+				exact: true,
+			} )
+		).not.toBeAttached();
+
+		// Click on the pattern in List View to select it.
+		await listView.getByRole( 'gridcell', { name: 'My pattern' } ).click();
+
+		// Click "Edit pattern" in the block toolbar.
+		await editor.clickBlockToolbarButton( 'Edit pattern' );
+
+		// Expand the inner Group to see all blocks including separator.
+		await listView
+			.getByRole( 'gridcell', { name: 'Group' } )
+			.getByTestId( 'list-view-expander' )
+			.click( { force: true } );
+
+		// Assert all blocks are now visible in List View.
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Separator',
+				exact: true,
+			} )
+		).toBeVisible();
+
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Group',
+				exact: true,
+			} )
+		).toBeVisible();
+
+		// Exit pattern editing by clicking "Exit pattern" in the block toolbar.
+		await editor.clickBlockToolbarButton( 'Exit pattern' );
+
+		// Verify pattern is back to content-only mode (separator hidden again).
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Separator',
+				exact: true,
+			} )
+		).not.toBeAttached();
+
+		// Verify content blocks are still visible.
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Test heading',
+				exact: true,
+			} )
+		).toBeVisible();
+
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Paragraph',
+				exact: true,
+			} )
+		).toBeVisible();
+
+		await expect(
+			listView.getByRole( 'gridcell', {
+				name: 'Image',
+				exact: true,
+			} )
+		).toBeVisible();
+	} );
 } );
 
 test.describe( 'Synced pattern', () => {
 	test.beforeAll( async ( { requestUtils } ) => {
+		// Cross-origin isolation (COEP) prevents page navigations
+		// from working properly during pattern editing.
+		await requestUtils.activatePlugin(
+			'gutenberg-test-plugin-disable-client-side-media-processing'
+		);
 		await requestUtils.deleteAllBlocks();
 		await requestUtils.deleteAllPatternCategories();
 	} );
 
 	test.beforeEach( async ( { admin } ) => {
 		await admin.createNewPost();
+	} );
+
+	test.afterAll( async ( { requestUtils } ) => {
+		await requestUtils.deactivatePlugin(
+			'gutenberg-test-plugin-disable-client-side-media-processing'
+		);
 	} );
 
 	test.afterEach( async ( { requestUtils } ) => {
@@ -619,7 +1085,7 @@ test.describe( 'Synced pattern', () => {
 		await expect(
 			page
 				.getByRole( 'region', { name: 'Editor settings' } )
-				.getByRole( 'button', { name: 'Styles', exact: true } )
+				.getByRole( 'heading', { name: 'Styles', exact: true } )
 		).toBeVisible();
 
 		await editor.clickBlockOptionsMenuItem( 'Create pattern' );
@@ -640,5 +1106,84 @@ test.describe( 'Synced pattern', () => {
 		await expect(
 			editor.canvas.getByRole( 'document', { name: 'Block: Pattern' } )
 		).toBeVisible();
+	} );
+} );
+
+test.describe( 'Synced pattern - entity navigation', () => {
+	test.beforeAll( async ( { requestUtils } ) => {
+		await requestUtils.activateTheme( 'emptytheme' );
+		await requestUtils.deleteAllBlocks();
+	} );
+
+	test.afterAll( async ( { requestUtils } ) => {
+		await requestUtils.activateTheme( 'twentytwentyone' );
+		await requestUtils.deleteAllBlocks();
+	} );
+
+	test( 'should restore selection after navigating back from pattern editing', async ( {
+		admin,
+		editor,
+		page,
+		requestUtils,
+	} ) => {
+		const { id } = await requestUtils.createBlock( {
+			title: 'Navigation test pattern',
+			content:
+				'<!-- wp:paragraph -->\n<p>Pattern content</p>\n<!-- /wp:paragraph -->',
+			status: 'publish',
+		} );
+
+		await admin.createNewPost();
+
+		// Insert a pattern block within the post content.
+		await editor.insertBlock( {
+			name: 'core/block',
+			attributes: { ref: id },
+		} );
+
+		// Enable "Show template" to enter template-locked mode.
+		await page.evaluate( () => {
+			window.wp.data.dispatch( 'core/block-editor' ).clearSelectedBlock();
+		} );
+		await editor.openDocumentSettingsSidebar();
+		await page
+			.getByRole( 'region', { name: 'Editor settings' } )
+			.getByRole( 'button', { name: 'Template options' } )
+			.click();
+		await page
+			.getByRole( 'menuitemcheckbox', { name: 'Show template' } )
+			.click();
+		// Close the dropdown.
+		await page.keyboard.press( 'Escape' );
+
+		// Select the pattern block.
+		const patternBlock = editor.canvas.getByRole( 'document', {
+			name: 'Block: Pattern',
+		} );
+		await editor.selectBlocks( patternBlock );
+
+		// Click "Edit original" in the block toolbar.
+		await editor.showBlockToolbar();
+		await page
+			.getByRole( 'toolbar', { name: 'Block tools' } )
+			.getByRole( 'button', { name: 'Edit original' } )
+			.click();
+
+		// Verify we navigated to the pattern editing view.
+		const editorTopBar = page.getByRole( 'region', {
+			name: 'Editor top bar',
+		} );
+		await expect(
+			editorTopBar.getByRole( 'heading', {
+				name: 'Navigation test pattern',
+				level: 1,
+			} )
+		).toBeVisible();
+
+		// Click "Back" to return to the post.
+		await editorTopBar.getByRole( 'button', { name: 'Back' } ).click();
+
+		// The pattern block should still be selected.
+		await expect( patternBlock ).toHaveClass( /is-selected/ );
 	} );
 } );

@@ -2,6 +2,7 @@
  * External dependencies
  */
 import * as Y from 'yjs';
+import { Awareness } from 'y-protocols/awareness';
 import * as fun from 'lib0/function';
 import {
 	describe,
@@ -18,9 +19,10 @@ import {
 import { createSyncManager } from '../manager';
 import {
 	CRDT_RECORD_MAP_KEY,
-	WORDPRESS_META_KEY_FOR_CRDT_DOC_PERSISTENCE,
+	CRDT_STATE_MAP_KEY,
+	CRDT_STATE_MAP_SAVED_AT_KEY as SAVED_AT_KEY,
+	CRDT_STATE_MAP_SAVED_BY_KEY as SAVED_BY_KEY,
 } from '../config';
-import { createPersistedCRDTDoc } from '../persistence';
 import { getProviderCreators } from '../providers';
 import type {
 	CRDTDoc,
@@ -30,6 +32,7 @@ import type {
 	RecordHandlers,
 	SyncConfig,
 } from '../types';
+import { serializeCrdtDoc } from '../utils';
 
 // Mock dependencies.
 jest.mock( '../providers', () => ( {
@@ -55,6 +58,7 @@ describe( 'SyncManager', () => {
 
 		mockProviderResult = {
 			destroy: jest.fn(),
+			on: jest.fn(),
 		};
 		mockProviderCreator = jest.fn( () =>
 			Promise.resolve( mockProviderResult )
@@ -79,15 +83,22 @@ describe( 'SyncManager', () => {
 					);
 				}
 			),
-			supports: {},
+			createAwareness: jest.fn(
+				( ydoc: Y.Doc ) => new Awareness( ydoc )
+			),
+			getPersistedCRDTDoc: jest.fn( () => null ),
 		};
 
 		mockHandlers = {
+			addUndoMeta: jest.fn(),
 			editRecord: jest.fn(),
 			getEditedRecord: jest.fn( async () =>
 				Promise.resolve( mockRecord )
 			),
-			saveRecord: jest.fn( async () => Promise.resolve() ),
+			onStatusChange: jest.fn(),
+			refetchRecord: jest.fn( async () => Promise.resolve() ),
+			restoreUndoMeta: jest.fn(),
+			saveRecord: jest.fn(),
 		};
 	} );
 
@@ -126,18 +137,19 @@ describe( 'SyncManager', () => {
 
 			await manager.load(
 				mockSyncConfig,
-				'post',
+				'postType/post',
 				'123',
 				mockRecord,
 				mockHandlers
 			);
 
 			expect( mockProviderCreator ).toHaveBeenCalledTimes( 1 );
-			expect( mockProviderCreator ).toHaveBeenCalledWith(
-				'post',
-				'123',
-				expect.any( Y.Doc )
-			);
+			expect( mockProviderCreator ).toHaveBeenCalledWith( {
+				objectType: 'postType/post',
+				objectId: '123',
+				ydoc: expect.any( Y.Doc ),
+				awareness: expect.any( Awareness ),
+			} );
 		} );
 
 		it( 'does not load entity when no providers are available', async () => {
@@ -214,10 +226,9 @@ describe( 'SyncManager', () => {
 		} );
 
 		describe( 'persisted CRDT doc behavior', () => {
-			function createRecordWithPersistedCRDTDoc(
-				record: ObjectData,
-				persistedRecord: ObjectData = record
-			): ObjectData {
+			function createPersistedCRDTDoc(
+				persistedRecord: ObjectData
+			): string {
 				const persistedDoc = new Y.Doc();
 				const persistedRecordMap =
 					persistedDoc.getMap( CRDT_RECORD_MAP_KEY );
@@ -227,24 +238,10 @@ describe( 'SyncManager', () => {
 					}
 				);
 
-				const persistedMeta = createPersistedCRDTDoc( persistedDoc );
-				persistedDoc.destroy();
-
-				return {
-					...record,
-					meta: {
-						...record.meta,
-						...persistedMeta,
-					},
-				};
+				return serializeCrdtDoc( persistedDoc );
 			}
 
 			it( 'applies the current record when no persisted CRDT doc exists', async () => {
-				mockSyncConfig = {
-					...mockSyncConfig,
-					supports: { crdtPersistence: true },
-				};
-
 				const manager = createSyncManager();
 
 				await manager.load(
@@ -263,38 +260,21 @@ describe( 'SyncManager', () => {
 					mockSyncConfig.applyChangesToCRDTDoc
 				).toHaveBeenCalledWith( expect.any( Y.Doc ), mockRecord );
 
-				// Changes should be correctly applied.
-				const mockCall =
-					mockSyncConfig.applyChangesToCRDTDoc.mock.calls[ 0 ];
-				const targetDoc = mockCall[ 0 ] as Y.Doc;
-				const appliedChanges = mockCall[ 1 ] as ObjectData;
-				expect(
-					targetDoc.getMap( CRDT_RECORD_MAP_KEY ).get( 'title' )
-				).toBeUndefined();
-				expect( appliedChanges.title ).toStrictEqual( 'Test Post' );
-
 				// getChangesFromCRDTDoc should not be called since there was no persisted doc.
 				expect(
 					mockSyncConfig.getChangesFromCRDTDoc
 				).not.toHaveBeenCalled();
 
 				// Verify a save operation occurred.
-				expect( mockHandlers.editRecord ).toHaveBeenCalledTimes( 1 );
-				expect( mockHandlers.editRecord ).toHaveBeenCalledWith( {
-					meta: {
-						[ WORDPRESS_META_KEY_FOR_CRDT_DOC_PERSISTENCE ]:
-							expect.any( String ),
-					},
-				} );
 				expect( mockHandlers.saveRecord ).toHaveBeenCalledTimes( 1 );
 			} );
 
-			it( 'applies a valid persisted CRDT doc without applying the current record', async () => {
-				const record = createRecordWithPersistedCRDTDoc( mockRecord );
-
+			it( 'accepts a valid persisted CRDT doc without applying changes', async () => {
 				mockSyncConfig = {
 					...mockSyncConfig,
-					supports: { crdtPersistence: true },
+					getPersistedCRDTDoc: jest.fn( () =>
+						createPersistedCRDTDoc( mockRecord )
+					),
 				};
 
 				const manager = createSyncManager();
@@ -303,11 +283,11 @@ describe( 'SyncManager', () => {
 					mockSyncConfig,
 					'post',
 					'123',
-					record,
+					mockRecord,
 					mockHandlers
 				);
 
-				// Current record should NOT be applied since the persisted doc is valid.
+				// Changes should NOT be applied since the persisted doc is valid.
 				expect(
 					mockSyncConfig.applyChangesToCRDTDoc
 				).not.toHaveBeenCalled();
@@ -318,21 +298,22 @@ describe( 'SyncManager', () => {
 				).toHaveBeenCalledTimes( 1 );
 				expect(
 					mockSyncConfig.getChangesFromCRDTDoc
-				).toHaveBeenCalledWith( expect.any( Y.Doc ), record );
+				).toHaveBeenCalledWith( expect.any( Y.Doc ), mockRecord );
 
 				// Verify no save operation occurred
 				expect( mockHandlers.editRecord ).not.toHaveBeenCalled();
 				expect( mockHandlers.saveRecord ).not.toHaveBeenCalled();
 			} );
 
-			it( 'applies an invalid persisted CRDT doc, then applies the current record', async () => {
-				const record = createRecordWithPersistedCRDTDoc( mockRecord, {
-					title: 'Title from persisted CRDT doc',
-				} );
-
+			it( 'applies a persisted CRDT doc with invalidated fields, then applies changes', async () => {
 				mockSyncConfig = {
 					...mockSyncConfig,
-					supports: { crdtPersistence: true },
+					getPersistedCRDTDoc: jest.fn( () =>
+						createPersistedCRDTDoc( {
+							...mockRecord,
+							title: 'Invalidated title from persisted CRDT doc',
+						} )
+					),
 				};
 
 				const manager = createSyncManager();
@@ -341,27 +322,21 @@ describe( 'SyncManager', () => {
 					mockSyncConfig,
 					'post',
 					'123',
-					record,
+					mockRecord,
 					mockHandlers
 				);
 
-				// Current record should be applied since the persisted doc is invalid.
+				// Changes should be applied for the invalidated properties.
+				const expectedChanges = {
+					title: mockRecord.title,
+				};
+
 				expect(
 					mockSyncConfig.applyChangesToCRDTDoc
 				).toHaveBeenCalledTimes( 1 );
 				expect(
 					mockSyncConfig.applyChangesToCRDTDoc
-				).toHaveBeenCalledWith( expect.any( Y.Doc ), record );
-
-				// Changes should be correctly applied.
-				const mockCall =
-					mockSyncConfig.applyChangesToCRDTDoc.mock.calls[ 0 ];
-				const targetDoc = mockCall[ 0 ] as Y.Doc;
-				const appliedChanges = mockCall[ 1 ] as ObjectData;
-				expect(
-					targetDoc.getMap( CRDT_RECORD_MAP_KEY ).get( 'title' )
-				).toStrictEqual( 'Title from persisted CRDT doc' );
-				expect( appliedChanges.title ).toStrictEqual( 'Test Post' );
+				).toHaveBeenCalledWith( expect.any( Y.Doc ), expectedChanges );
 
 				// getChangesFromCRDTDoc should be called with the persisted doc and record.
 				expect(
@@ -369,62 +344,9 @@ describe( 'SyncManager', () => {
 				).toHaveBeenCalledTimes( 1 );
 				expect(
 					mockSyncConfig.getChangesFromCRDTDoc
-				).toHaveBeenCalledWith( expect.any( Y.Doc ), record );
+				).toHaveBeenCalledWith( expect.any( Y.Doc ), mockRecord );
 
 				// Verify a save operation occurred.
-				expect( mockHandlers.editRecord ).toHaveBeenCalledTimes( 1 );
-				expect( mockHandlers.editRecord ).toHaveBeenCalledWith( {
-					meta: {
-						[ WORDPRESS_META_KEY_FOR_CRDT_DOC_PERSISTENCE ]:
-							expect.any( String ),
-					},
-				} );
-				expect( mockHandlers.saveRecord ).toHaveBeenCalledTimes( 1 );
-			} );
-
-			it( 'ignores a persisted CRDT doc when CRDT persistence is not supported', async () => {
-				const record = createRecordWithPersistedCRDTDoc( mockRecord, {
-					title: 'Persisted Title',
-				} );
-
-				const manager = createSyncManager();
-
-				await manager.load(
-					mockSyncConfig,
-					'post',
-					'123',
-					record,
-					mockHandlers
-				);
-
-				// Current record should be applied since the persisted doc does not exist.
-				expect(
-					mockSyncConfig.applyChangesToCRDTDoc
-				).toHaveBeenCalledTimes( 1 );
-				expect(
-					mockSyncConfig.applyChangesToCRDTDoc
-				).toHaveBeenCalledWith( expect.any( Y.Doc ), record );
-
-				// Changes should be correctly applied.
-				const mockCall =
-					mockSyncConfig.applyChangesToCRDTDoc.mock.calls[ 0 ];
-				const targetDoc = mockCall[ 0 ] as Y.Doc;
-				const appliedChanges = mockCall[ 1 ] as ObjectData;
-				expect(
-					targetDoc.getMap( CRDT_RECORD_MAP_KEY ).get( 'title' )
-				).toBeUndefined();
-				expect( appliedChanges.title ).toStrictEqual( 'Test Post' );
-
-				// getChangesFromCRDTDoc should not be called since the persisted doc is igored.
-				expect(
-					mockSyncConfig.getChangesFromCRDTDoc
-				).not.toHaveBeenCalled();
-
-				// Verify a save operation occurred.
-				expect( mockHandlers.editRecord ).toHaveBeenCalledTimes( 1 );
-				expect( mockHandlers.editRecord ).toHaveBeenCalledWith( {
-					meta: {},
-				} );
 				expect( mockHandlers.saveRecord ).toHaveBeenCalledTimes( 1 );
 			} );
 		} );
@@ -512,12 +434,22 @@ describe( 'SyncManager', () => {
 			jest.clearAllMocks();
 			manager.update( 'post', '456', { title: 'Updated' }, 'local' );
 
+			// Wait a tick for yieldToEventLoop.
+			await new Promise( ( resolve ) => setTimeout( resolve, 0 ) );
+
 			expect( mockSyncConfig.applyChangesToCRDTDoc ).toHaveBeenCalled();
 		} );
 	} );
 
 	describe( 'update', () => {
 		it( 'updates CRDT document with local changes', async () => {
+			// Capture the Y.Doc from provider creator
+			let capturedDoc: Y.Doc | null = null;
+			mockProviderCreator.mockImplementation( async ( { ydoc } ) => {
+				capturedDoc = ydoc;
+				return mockProviderResult;
+			} );
+
 			const manager = createSyncManager();
 
 			await manager.load(
@@ -533,17 +465,30 @@ describe( 'SyncManager', () => {
 			const changes = { title: 'Updated Title' };
 			manager.update( 'post', '123', changes, 'local-editor' );
 
+			// Wait a tick for yieldToEventLoop.
+			await new Promise( ( resolve ) => setTimeout( resolve, 0 ) );
+
+			// Verify that applyChangesToCRDTDoc was called with the changes.
 			expect( mockSyncConfig.applyChangesToCRDTDoc ).toHaveBeenCalledWith(
 				expect.any( Y.Doc ),
 				changes
 			);
+
+			// Verify that the record metadata was not updated.
+			const ydoc = capturedDoc as unknown as Y.Doc;
+			const stateMap = ydoc.getMap( CRDT_STATE_MAP_KEY );
+			expect( stateMap.get( SAVED_AT_KEY ) ).toBeUndefined();
+			expect( stateMap.get( SAVED_BY_KEY ) ).toBeUndefined();
 		} );
 
-		it( 'does not update when entity is not loaded', () => {
+		it( 'does not update when entity is not loaded', async () => {
 			const manager = createSyncManager();
 
 			const changes = { title: 'Updated Title' };
 			manager.update( 'post', '999', changes, 'local-editor' );
+
+			// Wait a tick for yieldToEventLoop.
+			await new Promise( ( resolve ) => setTimeout( resolve, 0 ) );
 
 			expect(
 				mockSyncConfig.applyChangesToCRDTDoc
@@ -553,16 +498,10 @@ describe( 'SyncManager', () => {
 		it( 'applies changes with specified origin', async () => {
 			// Capture the Y.Doc from provider creator
 			let capturedDoc: Y.Doc | null = null;
-			mockProviderCreator.mockImplementation(
-				async (
-					_objectType: string,
-					_objectId: string,
-					ydoc: Y.Doc
-				) => {
-					capturedDoc = ydoc;
-					return mockProviderResult;
-				}
-			);
+			mockProviderCreator.mockImplementation( async ( { ydoc } ) => {
+				capturedDoc = ydoc;
+				return mockProviderResult;
+			} );
 
 			const manager = createSyncManager();
 
@@ -588,10 +527,58 @@ describe( 'SyncManager', () => {
 
 			manager.update( 'post', '123', changes, customOrigin );
 
+			// Wait a tick for yieldToEventLoop.
+			await new Promise( ( resolve ) => setTimeout( resolve, 0 ) );
+
 			expect( transactSpy ).toHaveBeenCalledWith(
 				expect.any( Function ),
 				customOrigin
 			);
+		} );
+
+		it( 'updates the record metadata when the update is associated with a save', async () => {
+			// Capture the Y.Doc from provider creator.
+			let capturedDoc: Y.Doc | null = null;
+			mockProviderCreator.mockImplementation( async ( { ydoc } ) => {
+				capturedDoc = ydoc;
+				return mockProviderResult;
+			} );
+
+			const manager = createSyncManager();
+
+			await manager.load(
+				mockSyncConfig,
+				'post',
+				'123',
+				mockRecord,
+				mockHandlers
+			);
+
+			jest.clearAllMocks();
+
+			const changes = { title: 'Updated Title' };
+			const now = Date.now();
+
+			manager.update( 'post', '123', changes, 'local-editor', {
+				isSave: true,
+			} );
+
+			// Wait a tick for yieldToEventLoop.
+			await new Promise( ( resolve ) => setTimeout( resolve, 0 ) );
+
+			// Verify that applyChangesToCRDTDoc was called with the changes.
+			expect( mockSyncConfig.applyChangesToCRDTDoc ).toHaveBeenCalledWith(
+				expect.any( Y.Doc ),
+				changes
+			);
+
+			// Verify that the record metadata was updated.
+			const ydoc = capturedDoc as unknown as Y.Doc;
+			const stateMap = ydoc.getMap( CRDT_STATE_MAP_KEY );
+			expect( stateMap.get( SAVED_AT_KEY ) ).toBeGreaterThanOrEqual(
+				now
+			);
+			expect( stateMap.get( SAVED_BY_KEY ) ).toBe( ydoc.clientID );
 		} );
 	} );
 
@@ -599,16 +586,10 @@ describe( 'SyncManager', () => {
 		it( 'edits the local entity record when remote updates arrive', async () => {
 			// Capture the Y.Doc from provider creator.
 			let capturedDoc: Y.Doc | null = null;
-			mockProviderCreator.mockImplementation(
-				async (
-					_objectType: string,
-					_objectId: string,
-					ydoc: Y.Doc
-				) => {
-					capturedDoc = ydoc;
-					return mockProviderResult;
-				}
-			);
+			mockProviderCreator.mockImplementation( async ( { ydoc } ) => {
+				capturedDoc = ydoc;
+				return mockProviderResult;
+			} );
 
 			const manager = createSyncManager();
 
@@ -648,16 +629,10 @@ describe( 'SyncManager', () => {
 		it( 'does not edit the local record for local transactions', async () => {
 			// Capture the Y.Doc from provider creator.
 			let capturedDoc: Y.Doc | null = null;
-			mockProviderCreator.mockImplementation(
-				async (
-					_objectType: string,
-					_objectId: string,
-					ydoc: Y.Doc
-				) => {
-					capturedDoc = ydoc;
-					return mockProviderResult;
-				}
-			);
+			mockProviderCreator.mockImplementation( async ( { ydoc } ) => {
+				capturedDoc = ydoc;
+				return mockProviderResult;
+			} );
 
 			const manager = createSyncManager();
 

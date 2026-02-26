@@ -28,13 +28,18 @@ import {
 	useBlockEditingMode,
 	BlockControls,
 } from '@wordpress/block-editor';
-import { EntityProvider, store as coreStore } from '@wordpress/core-data';
-
+import {
+	EntityProvider,
+	store as coreStore,
+	useEntityRecords,
+} from '@wordpress/core-data';
 import { useDispatch, useSelect } from '@wordpress/data';
 import {
 	__experimentalToolsPanel as ToolsPanel,
 	__experimentalToolsPanelItem as ToolsPanelItem,
 	ToggleControl,
+	__experimentalToggleGroupControl as ToggleGroupControl,
+	__experimentalToggleGroupControlOption as ToggleGroupControlOption,
 	Spinner,
 	Notice,
 	ToolbarButton,
@@ -60,8 +65,6 @@ import NavigationMenuDeleteControl from './navigation-menu-delete-control';
 import useNavigationNotice from './use-navigation-notice';
 import OverlayMenuPreview from './overlay-menu-preview';
 import OverlayPanel from './overlay-panel';
-import OverlayVisibilityControl from './overlay-visibility-control';
-import OverlayMenuPreviewButton from './overlay-menu-preview-button';
 import useConvertClassicToBlockMenu, {
 	CLASSIC_MENU_CONVERSION_ERROR,
 	CLASSIC_MENU_CONVERSION_PENDING,
@@ -77,14 +80,18 @@ import AccessibleDescription from './accessible-description';
 import AccessibleMenuDescription from './accessible-menu-description';
 import { unlock } from '../../lock-unlock';
 import { useToolsPanelDropdownMenuProps } from '../../utils/hooks';
-import { DEFAULT_BLOCK } from '../constants';
+import { isWithinNavigationOverlay } from '../../utils/is-within-overlay';
+import {
+	DEFAULT_BLOCK,
+	NAVIGATION_OVERLAY_TEMPLATE_PART_AREA,
+} from '../constants';
 
 /**
  * Component that renders the Add page button for the Navigation block.
  *
  * @param {Object} props          Component props.
  * @param {string} props.clientId Block client ID.
- * @return {JSX.Element|null} The Add page button component or null if not applicable.
+ * @return {React.JSX.Element} The Add page button component or null if not applicable.
  */
 function NavigationAddPageButton( { clientId } ) {
 	const { insertBlock } = useDispatch( blockEditorStore );
@@ -130,6 +137,7 @@ function ColorTools( {
 	setOverlayBackgroundColor,
 	clientId,
 	navRef,
+	hasCustomOverlay,
 } ) {
 	const [ detectedBackgroundColor, setDetectedBackgroundColor ] = useState();
 	const [ detectedColor, setDetectedColor ] = useState();
@@ -138,6 +146,10 @@ function ColorTools( {
 		setDetectedOverlayBackgroundColor,
 	] = useState();
 	const [ detectedOverlayColor, setDetectedOverlayColor ] = useState();
+
+	// Detect if we're editing inside an overlay template part.
+	const isWithinOverlay = useSelect( () => isWithinNavigationOverlay(), [] );
+
 	// Turn on contrast checker for web only since it's not supported on mobile yet.
 	const enableContrastChecking = Platform.OS === 'web';
 	useEffect( () => {
@@ -178,44 +190,57 @@ function ColorTools( {
 	if ( ! colorGradientSettings.hasColorsOrGradients ) {
 		return null;
 	}
+
+	const colorSettings = [
+		{
+			colorValue: textColor.color,
+			label: __( 'Text' ),
+			onColorChange: setTextColor,
+			resetAllFilter: () => setTextColor(),
+			clearable: true,
+			enableAlpha: true,
+		},
+		{
+			colorValue: backgroundColor.color,
+			label: __( 'Background' ),
+			onColorChange: setBackgroundColor,
+			resetAllFilter: () => setBackgroundColor(),
+			clearable: true,
+			enableAlpha: true,
+		},
+	];
+
+	// Only show overlay controls when not in an overlay template.
+	colorSettings.push(
+		{
+			colorValue: overlayTextColor.color,
+			label:
+				hasCustomOverlay || isWithinOverlay
+					? __( 'Submenu text' )
+					: __( 'Submenu & overlay text' ),
+			onColorChange: setOverlayTextColor,
+			resetAllFilter: () => setOverlayTextColor(),
+			clearable: true,
+			enableAlpha: true,
+		},
+		{
+			colorValue: overlayBackgroundColor.color,
+			label:
+				hasCustomOverlay || isWithinOverlay
+					? __( 'Submenu background' )
+					: __( 'Submenu & overlay background' ),
+			onColorChange: setOverlayBackgroundColor,
+			resetAllFilter: () => setOverlayBackgroundColor(),
+			clearable: true,
+			enableAlpha: true,
+		}
+	);
+
 	return (
 		<>
 			<ColorGradientSettingsDropdown
 				__experimentalIsRenderedInSidebar
-				settings={ [
-					{
-						colorValue: textColor.color,
-						label: __( 'Text' ),
-						onColorChange: setTextColor,
-						resetAllFilter: () => setTextColor(),
-						clearable: true,
-						enableAlpha: true,
-					},
-					{
-						colorValue: backgroundColor.color,
-						label: __( 'Background' ),
-						onColorChange: setBackgroundColor,
-						resetAllFilter: () => setBackgroundColor(),
-						clearable: true,
-						enableAlpha: true,
-					},
-					{
-						colorValue: overlayTextColor.color,
-						label: __( 'Submenu & overlay text' ),
-						onColorChange: setOverlayTextColor,
-						resetAllFilter: () => setOverlayTextColor(),
-						clearable: true,
-						enableAlpha: true,
-					},
-					{
-						colorValue: overlayBackgroundColor.color,
-						label: __( 'Submenu & overlay background' ),
-						onColorChange: setOverlayBackgroundColor,
-						resetAllFilter: () => setOverlayBackgroundColor(),
-						clearable: true,
-						enableAlpha: true,
-					},
-				] }
+				settings={ colorSettings }
 				panelId={ clientId }
 				{ ...colorGradientSettings }
 				gradients={ [] }
@@ -254,12 +279,11 @@ function Navigation( {
 
 	// These props are used by the navigation editor to override specific
 	// navigation block settings.
-	hasSubmenuIndicatorSetting = true,
 	customPlaceholder: CustomPlaceholder = null,
 	__unstableLayoutClassNames: layoutClassNames,
 } ) {
 	const {
-		openSubmenusOnClick,
+		submenuVisibility,
 		overlayMenu,
 		overlay,
 		showSubmenuIcon,
@@ -282,22 +306,36 @@ function Navigation( {
 		[ setAttributes ]
 	);
 
+	// Reset submenuVisibility to default if orientation changes to horizontal while "always" is selected
+	useEffect( () => {
+		if ( orientation === 'horizontal' && submenuVisibility === 'always' ) {
+			setAttributes( {
+				submenuVisibility: 'hover',
+				showSubmenuIcon: true,
+			} );
+		}
+	}, [ orientation, submenuVisibility, setAttributes ] );
+
 	const recursionId = `navigationMenu/${ ref }`;
-	const hasAlreadyRendered = useHasRecursion( recursionId );
+
+	// Skip recursion check when in preview mode.
+	const recursionDetected = useHasRecursion( recursionId );
+	const { isPreviewMode, onNavigateToEntityRecord, currentTheme } = useSelect(
+		( select ) => {
+			const { getSettings } = select( blockEditorStore );
+			const settings = getSettings();
+			return {
+				isPreviewMode: settings.isPreviewMode,
+				onNavigateToEntityRecord: settings?.onNavigateToEntityRecord,
+				// Needed to construct the template part ID for the overlay preview.
+				currentTheme: select( coreStore ).getCurrentTheme()?.stylesheet,
+			};
+		},
+		[]
+	);
+	const hasAlreadyRendered = isPreviewMode ? false : recursionDetected;
 
 	const blockEditingMode = useBlockEditingMode();
-
-	const { onNavigateToEntityRecord } = useSelect( ( select ) => {
-		const { getSettings } = select( blockEditorStore );
-		const settings = getSettings();
-		return {
-			onNavigateToEntityRecord: settings?.onNavigateToEntityRecord,
-		};
-	}, [] );
-
-	const isOverlayExperimentEnabled =
-		typeof window !== 'undefined' &&
-		window.__experimentalNavigationOverlays === true;
 
 	// Preload classic menus, so that they don't suddenly pop-in when viewing
 	// the Select Menu dropdown.
@@ -341,9 +379,62 @@ function Navigation( {
 		innerBlocks,
 	} = useInnerBlocks( clientId );
 
-	const hasSubmenus = !! innerBlocks.find(
-		( block ) => block.name === 'core/navigation-submenu'
+	// Use a ref to store whether we've confirmed a page-list has submenus.
+	// Once confirmed, we don't need to keep checking the page-list blocks.
+	const hasPageListWithSubmenuRef = useRef( false );
+
+	// Check for submenus using getBlocks to include controlled innerBlocks
+	const hasSubmenus = useSelect(
+		( select ) => {
+			// First check for navigation-submenu (fast, no selector needed)
+			const hasNavigationSubmenu = innerBlocks.some(
+				( block ) => block.name === 'core/navigation-submenu'
+			);
+			if ( hasNavigationSubmenu ) {
+				return true;
+			}
+
+			// Only check page-list if we didn't find a submenu already
+			const pageList = innerBlocks.find(
+				( block ) => block.name === 'core/page-list'
+			);
+			if ( ! pageList ) {
+				hasPageListWithSubmenuRef.current = false;
+				return false;
+			}
+
+			// If we've already confirmed page-list has submenus, return early
+			if ( hasPageListWithSubmenuRef.current ) {
+				return true;
+			}
+
+			// Check if the page-list has controlled innerBlocks
+			const { getBlocks } = select( blockEditorStore );
+			const pageListBlocks = getBlocks( pageList.clientId );
+			if ( pageListBlocks.length > 0 ) {
+				hasPageListWithSubmenuRef.current = true;
+				return true;
+			}
+
+			// No pageList returned with confirmed submenus, so assume it will not have submenus
+			return false;
+		},
+		[ innerBlocks ]
 	);
+
+	// Check if any overlay template parts exist
+	const { records: overlayTemplateParts } = useEntityRecords(
+		'postType',
+		'wp_template_part',
+		{
+			per_page: -1,
+		}
+	);
+	const hasOverlays =
+		overlayTemplateParts?.some(
+			( templatePart ) =>
+				templatePart.area === NAVIGATION_OVERLAY_TEMPLATE_PART_AREA
+		) ?? false;
 
 	const {
 		replaceInnerBlocks,
@@ -436,8 +527,12 @@ function Navigation( {
 
 	const navRef = useRef();
 
-	// The standard HTML5 tag for the block wrapper.
-	const TagName = 'nav';
+	// Detect if we're editing inside an overlay template part.
+	const isWithinOverlay = useSelect( () => isWithinNavigationOverlay(), [] );
+
+	// Use div wrapper if this navigation block is within an overlay template part.
+	// Otherwise, use nav as the standard HTML5 tag.
+	const TagName = isWithinOverlay ? 'div' : 'nav';
 
 	// "placeholder" shown if:
 	// - there is no ref attribute pointing to a Navigation Post.
@@ -473,6 +568,39 @@ function Navigation( {
 			),
 		[ clientId ]
 	);
+
+	// Configure navigation blocks in overlay templates.
+	const hasSetOverlayDefault = useRef( false );
+	useEffect( () => {
+		if ( ! isWithinOverlay ) {
+			return;
+		}
+
+		// Prevent nested overlays.
+		if ( overlayMenu !== 'never' ) {
+			setAttributes( { overlayMenu: 'never' } );
+		}
+
+		// Set vertical orientation and always-open submenus for new blocks.
+		if ( ! hasSetOverlayDefault.current && ! ref ) {
+			hasSetOverlayDefault.current = true;
+			setAttributes( {
+				submenuVisibility: 'always',
+				layout: {
+					...attributes.layout,
+					orientation: 'vertical',
+				},
+				showSubmenuIcon: false,
+			} );
+		}
+	}, [
+		attributes.layout,
+		isWithinOverlay,
+		overlayMenu,
+		ref,
+		setAttributes,
+	] );
+
 	const isResponsive = 'never' !== overlayMenu;
 	const blockProps = useBlockProps( {
 		ref: navRef,
@@ -631,7 +759,9 @@ function Navigation( {
 	);
 
 	const submenuAccessibilityNotice =
-		! showSubmenuIcon && ! openSubmenusOnClick
+		! showSubmenuIcon &&
+		submenuVisibility !== 'click' &&
+		submenuVisibility !== 'always'
 			? __(
 					'The current menu options offer reduced accessibility for users and are not recommended. Enabling either "Open on Click" or "Show arrow" offers enhanced accessibility by allowing keyboard users to browse submenus selectively.'
 			  )
@@ -655,13 +785,13 @@ function Navigation( {
 	const stylingInspectorControls = (
 		<>
 			<InspectorControls>
-				{ hasSubmenuIndicatorSetting && (
+				{ hasSubmenus && (
 					<ToolsPanel
 						label={ __( 'Display' ) }
 						resetAll={ () => {
 							setAttributes( {
 								showSubmenuIcon: true,
-								openSubmenusOnClick: false,
+								submenuVisibility: 'hover',
 								overlayMenu: 'mobile',
 								hasIcon: true,
 								icon: 'handle',
@@ -669,79 +799,64 @@ function Navigation( {
 						} }
 						dropdownMenuProps={ dropdownMenuProps }
 					>
-						{ ! isOverlayExperimentEnabled && (
-							<>
-								{ isResponsive && (
-									<OverlayMenuPreviewButton
-										isResponsive={ isResponsive }
-										overlayMenuPreview={
-											overlayMenuPreview
-										}
-										setOverlayMenuPreview={
-											setOverlayMenuPreview
-										}
-										hasIcon={ hasIcon }
-										icon={ icon }
-										setAttributes={ setAttributes }
-										overlayMenuPreviewClasses={
-											overlayMenuPreviewClasses
-										}
-										overlayMenuPreviewId={
-											overlayMenuPreviewId
-										}
-										containerStyle={ {
-											gridColumn: 'span 2',
-										} }
-									/>
-								) }
-
-								<ToolsPanelItem
-									hasValue={ () => overlayMenu !== 'mobile' }
-									label={ __( 'Overlay Visibility' ) }
-									onDeselect={ () =>
-										setAttributes( {
-											overlayMenu: 'mobile',
-										} )
-									}
-									isShownByDefault
-								>
-									<OverlayVisibilityControl
-										overlayMenu={ overlayMenu }
-										setAttributes={ setAttributes }
-									/>
-								</ToolsPanelItem>
-							</>
-						) }
-
 						{ hasSubmenus && (
 							<>
 								<h3 className="wp-block-navigation__submenu-header">
 									{ __( 'Submenus' ) }
 								</h3>
 								<ToolsPanelItem
-									hasValue={ () => openSubmenusOnClick }
-									label={ __( 'Open on click' ) }
+									hasValue={ () =>
+										submenuVisibility !== 'hover'
+									}
+									label={ __( 'Submenu Visibility' ) }
 									onDeselect={ () =>
 										setAttributes( {
-											openSubmenusOnClick: false,
-											showSubmenuIcon: true,
+											submenuVisibility: 'hover',
 										} )
 									}
 									isShownByDefault
 								>
-									<ToggleControl
-										__nextHasNoMarginBottom
-										checked={ openSubmenusOnClick }
+									<ToggleGroupControl
+										__next40pxDefaultSize
+										label={ __( 'Submenu Visibility' ) }
+										value={ submenuVisibility }
 										onChange={ ( value ) => {
-											setAttributes( {
-												openSubmenusOnClick: value,
-												...( value && {
-													showSubmenuIcon: true,
-												} ), // Make sure arrows are shown when we toggle this on.
-											} );
+											const newAttributes = {
+												submenuVisibility: value,
+											};
+											const prevSubmenuVisibility =
+												submenuVisibility;
+											// If "always" is selected, hide the arrow because the formatting is broken for it when using center alignment.
+											if ( value === 'always' ) {
+												newAttributes.showSubmenuIcon = false;
+											} else if (
+												value === 'click' ||
+												prevSubmenuVisibility ===
+													'always'
+											) {
+												// When switching to "click" or away from "always", show the arrow
+												newAttributes.showSubmenuIcon = true;
+											}
+
+											setAttributes( newAttributes );
 										} }
-										label={ __( 'Open on click' ) }
-									/>
+										isBlock
+									>
+										<ToggleGroupControlOption
+											value="hover"
+											label={ __( 'Hover' ) }
+										/>
+										<ToggleGroupControlOption
+											value="click"
+											label={ __( 'Click' ) }
+										/>
+										{ orientation === 'vertical' && (
+											<ToggleGroupControlOption
+												value="always"
+												label={ __( 'Always' ) }
+											/>
+										) }
+									</ToggleGroupControl>
 								</ToolsPanelItem>
 
 								<ToolsPanelItem
@@ -753,12 +868,12 @@ function Navigation( {
 										} )
 									}
 									isDisabled={
-										attributes.openSubmenusOnClick
+										submenuVisibility === 'click' ||
+										submenuVisibility === 'always'
 									}
 									isShownByDefault
 								>
 									<ToggleControl
-										__nextHasNoMarginBottom
 										checked={ showSubmenuIcon }
 										onChange={ ( value ) => {
 											setAttributes( {
@@ -766,7 +881,8 @@ function Navigation( {
 											} );
 										} }
 										disabled={
-											attributes.openSubmenusOnClick
+											submenuVisibility === 'click' ||
+											submenuVisibility === 'always'
 										}
 										label={ __( 'Show arrow' ) }
 									/>
@@ -787,7 +903,7 @@ function Navigation( {
 					</ToolsPanel>
 				) }
 			</InspectorControls>
-			{ isOverlayExperimentEnabled && (
+			{ ! isWithinOverlay && (
 				<InspectorControls>
 					<OverlayPanel
 						overlayMenu={ overlayMenu }
@@ -801,6 +917,8 @@ function Navigation( {
 						overlayMenuPreviewClasses={ overlayMenuPreviewClasses }
 						overlayMenuPreviewId={ overlayMenuPreviewId }
 						isResponsive={ isResponsive }
+						currentTheme={ currentTheme }
+						hasOverlays={ hasOverlays }
 					/>
 				</InspectorControls>
 			) }
@@ -821,6 +939,7 @@ function Navigation( {
 					setOverlayBackgroundColor={ setOverlayBackgroundColor }
 					clientId={ clientId }
 					navRef={ navRef }
+					hasCustomOverlay={ !! overlay }
 				/>
 			</InspectorControls>
 		</>

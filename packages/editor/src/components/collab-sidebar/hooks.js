@@ -31,7 +31,7 @@ import { store as interfaceStore } from '@wordpress/interface';
  * Internal dependencies
  */
 import { store as editorStore } from '../../store';
-import { collabSidebarName } from './constants';
+import { FLOATING_NOTES_SIDEBAR } from './constants';
 import { unlock } from '../../lock-unlock';
 import { noop } from './utils';
 
@@ -83,11 +83,17 @@ export function useBlockComments( postId ) {
 		const compare = {};
 		const result = [];
 
+		// Create a reverse map for faster lookup.
+		const commentIdToBlockClientId = Object.keys(
+			blocksWithComments
+		).reduce( ( mapping, clientId ) => {
+			mapping[ blocksWithComments[ clientId ] ] = clientId;
+			return mapping;
+		}, {} );
+
 		// Initialize each object with an empty `reply` array and map blockClientId.
 		threads.forEach( ( item ) => {
-			const itemBlock = Object.keys( blocksWithComments ).find(
-				( key ) => blocksWithComments[ key ] === item.id
-			);
+			const itemBlock = commentIdToBlockClientId[ item.id ];
 
 			compare[ item.id ] = {
 				...item,
@@ -345,14 +351,16 @@ export function useEnableFloatingSidebar( enabled = false ) {
 		const unsubscribe = registry.subscribe( () => {
 			// Return `null` to indicate the user hid the complementary area.
 			if ( getActiveComplementaryArea( 'core' ) === null ) {
-				enableComplementaryArea( 'core', collabSidebarName );
+				enableComplementaryArea( 'core', FLOATING_NOTES_SIDEBAR );
 			}
 		} );
 
 		return () => {
 			unsubscribe();
-			if ( getActiveComplementaryArea( 'core' ) === collabSidebarName ) {
-				disableComplementaryArea( 'core', collabSidebarName );
+			if (
+				getActiveComplementaryArea( 'core' ) === FLOATING_NOTES_SIDEBAR
+			) {
+				disableComplementaryArea( 'core', FLOATING_NOTES_SIDEBAR );
 			}
 		};
 	}, [ enabled, registry ] );
