@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 
+-   `RadioControl`: Add support for disabled radio group [#77127](https://github.com/WordPress/gutenberg/pull/77127).
 -   `FormTokenField`: Fix disabled styles. [#77137](https://github.com/WordPress/gutenberg/pull/77137)
 -   `Textarea`: Fix disabled styles [#77129](https://github.com/WordPress/gutenberg/pull/77129).
 -   `Autocomplete`: Fix value comparison to avoid resetting block inserter in RTC ([#76980](https://github.com/WordPress/gutenberg/pull/76980)).
