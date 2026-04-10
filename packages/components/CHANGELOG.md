@@ -13,6 +13,7 @@
 
 ### Enhancements
 
+-   `FormToggle`: Update disabled styles [#77208](https://github.com/WordPress/gutenberg/pull/77208).
 -   `RadioControl`: Add support for disabled radio group [#77127](https://github.com/WordPress/gutenberg/pull/77127).
 
 ### Internal
