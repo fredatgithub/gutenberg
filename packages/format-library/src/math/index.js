@@ -3,7 +3,7 @@
  */
 import { __, sprintf } from '@wordpress/i18n';
 import { useState, useEffect } from '@wordpress/element';
-import { insertObject, useAnchor } from '@wordpress/rich-text';
+import { insert, insertObject, useAnchor } from '@wordpress/rich-text';
 import { RichTextToolbarButton } from '@wordpress/block-editor';
 import {
 	Popover,
@@ -141,12 +141,42 @@ function Edit( {
 				icon={ icon }
 				title={ title }
 				onClick={ () => {
+					// If a math object is already active, revert it to its
+					// LaTeX source so clicking the button toggles back to the
+					// exact text it was created from. Keep the restored text
+					// selected so it can be edited or re-marked right away.
+					if ( isObjectActive ) {
+						const latex =
+							activeObjectAttributes?.[ 'data-latex' ] || '';
+						const newValue = insert( value, latex );
+						newValue.start = newValue.end - latex.length;
+						onChange( newValue );
+						onFocus();
+						return;
+					}
+					// If there's a selection, seed the format with it so you
+					// can type LaTeX inline and then mark it as math.
+					const selectedText = value.text.slice(
+						value.start,
+						value.end
+					);
+					let innerHTML = '';
+					if ( selectedText && latexToMathML ) {
+						try {
+							innerHTML = latexToMathML( selectedText, {
+								displayMode: false,
+							} );
+						} catch {
+							// Leave unrendered; the popover opens with the text
+							// prefilled so the expression can be corrected.
+						}
+					}
 					const newValue = insertObject( value, {
 						type: name,
 						attributes: {
-							'data-latex': '',
+							'data-latex': selectedText,
 						},
-						innerHTML: '',
+						innerHTML,
 					} );
 					newValue.start = newValue.end - 1;
 					onChange( newValue );
