@@ -69,6 +69,22 @@ const config: Config = {
 						'@media ( -webkit-min-device-pixel-ratio: 2 ), ( min-resolution: 192dpi )',
 					],
 				},
+				{
+					mode: 'corner-radius-none',
+					selectors: [ '[data-wpds-corner-radius="none"]' ],
+				},
+				{
+					mode: 'corner-radius-subtle',
+					selectors: [ '[data-wpds-corner-radius="subtle"]' ],
+				},
+				{
+					mode: 'corner-radius-moderate',
+					selectors: [ '[data-wpds-corner-radius="moderate"]' ],
+				},
+				{
+					mode: 'corner-radius-pronounced',
+					selectors: [ '[data-wpds-corner-radius="pronounced"]' ],
+				},
 			],
 			legacyHex: true,
 		} ),
