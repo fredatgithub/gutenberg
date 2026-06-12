@@ -11,6 +11,10 @@
 
 -   Rename the `bg` and `fg` design token groups to `background` and `foreground`. All `--wpds-color-bg-*` custom properties are now `--wpds-color-background-*`, and all `--wpds-color-fg-*` custom properties are now `--wpds-color-foreground-*` ([#79098](https://github.com/WordPress/gutenberg/pull/79098)).
 
+### Bug Fixes
+
+-   `ThemeProvider`: Strictly enforce the documented seed-color input contract for `color.primary` / `color.background`. Inputs outside sRGB (e.g. `oklch()`), previously accepted incidentally, now throw a clear error ([#79148](https://github.com/WordPress/gutenberg/pull/79148)).
+
 ## 0.15.0 (2026-06-10)
 
 ### New Features
