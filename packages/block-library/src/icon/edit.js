@@ -29,10 +29,11 @@ import {
 	__experimentalUseBorderProps as useBorderProps,
 	__experimentalGetSpacingClassesAndStyles as useSpacingProps,
 	getDimensionsClassesAndStyles as useDimensionsProps,
+	store as blockEditorStore,
 } from '@wordpress/block-editor';
-import { useState } from '@wordpress/element';
+import { useEffect, useState } from '@wordpress/element';
 import { SVG, Rect, Path } from '@wordpress/primitives';
-import { useSelect } from '@wordpress/data';
+import { useDispatch, useSelect } from '@wordpress/data';
 import { store as coreDataStore } from '@wordpress/core-data';
 
 /**
@@ -62,7 +63,7 @@ const IconPlaceholder = ( { className, style } ) => (
 	</SVG>
 );
 
-export function Edit( { attributes, setAttributes } ) {
+export function Edit( { attributes, setAttributes, clientId } ) {
 	const { icon, ariaLabel, flipHorizontal, flipVertical, rotation } =
 		attributes;
 
@@ -90,6 +91,30 @@ export function Edit( { attributes, setAttributes } ) {
 		},
 		[ isInserterOpen, icon ]
 	);
+
+	const wasJustInserted = useSelect(
+		( select ) =>
+			select( blockEditorStore ).wasBlockJustInserted( clientId ),
+		[ clientId ]
+	);
+	const { __unstableMarkNextChangeAsNotPersistent } =
+		useDispatch( blockEditorStore );
+
+	// Default newly inserted Icon blocks to the info icon. Blocks saved in a
+	// placeholder state (no icon) are left untouched, so loading a post never
+	// silently alters existing content.
+	useEffect( () => {
+		if ( ! icon && wasJustInserted ) {
+			// This side-effect should not create an undo level.
+			__unstableMarkNextChangeAsNotPersistent();
+			setAttributes( { icon: 'core/info' } );
+		}
+	}, [
+		icon,
+		wasJustInserted,
+		setAttributes,
+		__unstableMarkNextChangeAsNotPersistent,
+	] );
 
 	const iconToDisplay = selectedIcon?.content || '';
 
