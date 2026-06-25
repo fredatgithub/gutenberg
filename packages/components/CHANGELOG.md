@@ -8,6 +8,10 @@
     -   `BorderBoxControl` ([#79420](https://github.com/WordPress/gutenberg/pull/79420))
     -   `FontSizePicker` ([#79481](https://github.com/WordPress/gutenberg/pull/79481))
 
+### Documentation
+
+-   Document the safe `clsx` pattern for conditional CSS Module classes ([#79490](https://github.com/WordPress/gutenberg/pull/79490)).
+
 ### Internal
 
 -   `Surface`: Migrate styles from Emotion to SCSS Modules and use WPDS tokens for migrated visual values ([#79445](https://github.com/WordPress/gutenberg/pull/79445)).
