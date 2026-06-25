@@ -175,6 +175,7 @@ const restrictedSyntax = [
 		'BoxControl',
 		'FocalPointPicker',
 		'FontSizePicker',
+		'LetterSpacingControl',
 		'QueryControls',
 		'SearchControl',
 		'TextControl',
