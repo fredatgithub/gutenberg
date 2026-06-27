@@ -180,6 +180,7 @@ const restrictedSyntax = [
 		'QueryControls',
 		'SearchControl',
 		'TextControl',
+		'TextIndentControl',
 		'TreeSelect',
 	].map( ( componentName ) => ( {
 		selector: `JSXElement[openingElement.name.name="${ componentName }"] JSXAttribute[name.name="__next40pxDefaultSize"]`,
