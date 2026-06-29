@@ -185,6 +185,7 @@ const restrictedSyntax = [
 		'LetterSpacingControl',
 		'LineHeightControl',
 		'QueryControls',
+		'RangeControl',
 		'SearchControl',
 		'TextControl',
 		'TextIndentControl',
