@@ -180,6 +180,7 @@ const restrictedSyntax = [
 		'BorderControl',
 		'BoxControl',
 		'FocalPointPicker',
+		'FontAppearanceControl',
 		'FontFamilyControl',
 		'FontSizePicker',
 		'LetterSpacingControl',
