@@ -110,7 +110,6 @@ ruleTester.run( 'components-no-missing-40px-size-prop', rule, {
 		{
 			code: `
 				import {
-					ComboboxControl,
 					CustomSelectControl,
 					FormTokenField,
 					InputControl,
@@ -121,7 +120,6 @@ ruleTester.run( 'components-no-missing-40px-size-prop', rule, {
 					UnitControl,
 				} from '@wordpress/components';
 				<>
-					<ComboboxControl __next40pxDefaultSize />
 					<CustomSelectControl __next40pxDefaultSize />
 					<FormTokenField __next40pxDefaultSize />
 					<InputControl __next40pxDefaultSize />
