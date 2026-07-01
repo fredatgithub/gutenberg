@@ -16,6 +16,12 @@ import { dateI18n, getSettings as getDateSettings } from '@wordpress/date';
  * Internal dependencies
  */
 import isTemplateRevertable from './utils/is-template-revertable';
+import { buildRevisionsPageQuery } from './private-selectors';
+import {
+	getDeviceTypeByCanvasWidth,
+	VIEWPORT_STATE_BY_DEVICE_TYPE,
+} from '../utils/device-type';
+import { unlock } from '../lock-unlock';
 export * from '../dataviews/store/private-actions';
 
 /**
@@ -576,15 +582,30 @@ export function resetStylesNavigation() {
 }
 
 /**
- * Set the minimum height of the canvas.
+ * Set the width of the canvas.
  *
- * @param {number} minHeight
- * @return {Object} Action object.
+ * @param {number} width The width of the canvas in pixels.
  */
-export function setCanvasMinHeight( minHeight ) {
-	return {
-		type: 'SET_CANVAS_MIN_HEIGHT',
-		minHeight,
+export function setCanvasWidth( width ) {
+	return ( { dispatch, registry } ) => {
+		dispatch( {
+			type: 'SET_CANVAS_WIDTH',
+			width,
+		} );
+
+		// While Responsive editing is enabled, the canvas width also drives the
+		// viewport style state, whether changed via the device preview or by
+		// manually resizing the canvas.
+		if (
+			unlock( registry.select( blockEditorStore ) ).isResponsiveEditing()
+		) {
+			const deviceType = getDeviceTypeByCanvasWidth( width );
+			unlock(
+				registry.dispatch( blockEditorStore )
+			).setStyleStateViewport(
+				VIEWPORT_STATE_BY_DEVICE_TYPE[ deviceType ] ?? 'default'
+			);
+		}
 	};
 }
 
@@ -601,6 +622,39 @@ export function setCurrentRevisionId( revisionId ) {
 		revisionId,
 	};
 }
+
+/**
+ * Set the current revisions page number and select the newest
+ * revision on that page once it loads.
+ *
+ * @param {number} page The page number.
+ */
+export const setRevisionPage =
+	( page ) =>
+	async ( { dispatch, select, registry } ) => {
+		const postType = select.getCurrentPostType();
+		const postId = select.getCurrentPostId();
+		const entityConfig = registry
+			.select( coreStore )
+			.getEntityConfig( 'postType', postType );
+		const revisionKey = entityConfig?.revisionKey || 'id';
+
+		const revisions = await registry
+			.resolveSelect( coreStore )
+			.getRevisions(
+				'postType',
+				postType,
+				postId,
+				buildRevisionsPageQuery( revisionKey, page )
+			);
+
+		registry.batch( () => {
+			dispatch( { type: 'SET_REVISION_PAGE', page } );
+			if ( revisions?.length ) {
+				dispatch.setCurrentRevisionId( revisions[ 0 ][ revisionKey ] );
+			}
+		} );
+	};
 
 /**
  * Set whether the revision diff highlighting is shown.
@@ -627,6 +681,11 @@ export const restoreRevision =
 		const postType = select.getCurrentPostType();
 		const postId = select.getCurrentPostId();
 
+		const entityConfig = registry
+			.select( coreStore )
+			.getEntityConfig( 'postType', postType );
+		const revisionKey = entityConfig?.revisionKey || 'id';
+
 		// Use resolveSelect to ensure the revision is fetched if not yet
 		// in the store. The _fields parameter matches the query used by
 		// getRevisions so the result is served from cache without an
@@ -635,8 +694,19 @@ export const restoreRevision =
 			.resolveSelect( coreStore )
 			.getRevision( 'postType', postType, postId, revisionId, {
 				context: 'edit',
-				_fields:
-					'id,date,author,meta,title.raw,excerpt.raw,content.raw',
+				_fields: [
+					...new Set( [
+						'id',
+						'date',
+						'modified',
+						'author',
+						'meta',
+						'title.raw',
+						'excerpt.raw',
+						'content.raw',
+						revisionKey,
+					] ),
+				].join(),
 			} );
 
 		if ( ! revision ) {
